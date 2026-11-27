@@ -67,6 +67,9 @@ jobs:
       - run: bun --no-env-file install --frozen-lockfile
       - run: bun --no-env-file run prisma validate --schema prisma/schema.prisma
       - run: bun --no-env-file run prisma generate --schema prisma/schema.prisma
+      # Historical migration utility clients are generated only in this isolated CI install.
+      - run: bun --no-env-file run prisma generate --schema prisma/schema.sqlite.prisma
+      - run: bun --no-env-file run prisma generate --schema prisma/schema.postgres.prisma
       - run: bun --no-env-file run prisma migrate deploy --schema prisma/schema.prisma
       # F4-B: next build ignores type errors, so typecheck the files this stage
       # touches against the freshly generated client (repo-wide baseline unchanged).
@@ -92,11 +95,21 @@ jobs:
       # auth context and the new suites.
       - name: Typecheck F4-B, F4-C1, F4-C2, F4-C3, F4-C4, F4-C5 and F10-C1 files
         run: |
-          bunx tsc --noEmit -p tsconfig.json > tsc-output.txt || true
+          set +e
+          bunx tsc --noEmit -p tsconfig.json > tsc-output.txt
+          tsc_status=$?
+          set -e
           if grep -E "^src/(lib/caja-correcciones|lib/caja-venta-vigente|lib/caja-devoluciones-service|lib/f4-b-correcciones|app/api/negocio/caja/ventas/\[id\]/correcciones|app/api/negocio/caja/ventas/route|components/business/caja-devoluciones|components/business/caja-correcciones|components/business/caja-tab|lib/caja-venta-service|lib/caja-transaccion-compartida|lib/f4-c1-transaccion-compartida|lib/caja-resumen-cobros|lib/caja-turnos-admin|lib/f4-c2-resumen-cobros|lib/f10-b0-static-contract|lib/f10-b2-0-static-contract|lib/caja-venta\.ts|lib/f4-c3-cambio-venta-schema|lib/caja-ejecutor-cambio|lib/caja-cambios|lib/caja-devoluciones-http|lib/f10-b2-1-static-contract|lib/f4-c4-|app/api/negocio/caja/ventas/\[id\]/(cambios|adicionales)|app/api/operativo/caja/\[slug\]/ventas/\[id\]/(cambios|adicionales)|lib/caja-intento-comercial|lib/caja-resumen-cambios|lib/f4-c5-|components/business/caja-cambios|components/shared/notification-center|app/api/negocio/caja/ventas/\[id\]/cadena|app/api/operativo/caja/\[slug\]/ventas/\[id\]/cadena|app/api/negocio/caja/configuracion-cambios|app/api/negocio/caja/turnos/\[id\]/route|app/api/negocio/caja/turnos/cerrados|app/operaciones/mi-panel/\[slug\]/caja/page|components/business/caja-catalogo-compacto|components/business/caja-post-idempotente|lib/caja-devolucion-estimado|lib/f4-c-auditoria-reintegro|lib/f4-c-reintegro-concurrente|lib/f4-c-medio-reintegro|components/business/caja-medio-reintegro|lib/caja-egresos-|lib/f10-c1|app/api/negocio/caja/egresos|app/api/negocio/caja/configuracion-egresos|app/api/operativo/caja/\[slug\]/egresos|components/business/caja-salidas-cajero|components/business/caja-cajero-secciones|components/business/owner-caja-egresos|components/business/owner-caja-desglose-turno|components/shared/install-prompt|components/business/operational-shift-panel\.tsx|lib/cuit|lib/proveedores-service|lib/cuenta-proveedor-|lib/f5a-|app/api/negocio/proveedores|components/business/owner-proveedores|lib/compras-|lib/f10-c2a-|lib/f10-c2b-|lib/r3a-f4-|lib/stock-lifecycle|lib/caja-devoluciones-service|lib/caja-correcciones-service|components/business/recepcion|components/business/owner-compras|app/operaciones/mi-panel/\[slug\]/recepciones|app/api/negocio/recepciones|app/api/negocio/compras|app/api/operativo/caja/\[slug\]/recepciones|lib/etiquetas-precio|lib/precios-venta|lib/precios-etiquetas|lib/inicio-venta|lib/pagos-pedido|lib/anticipos-pedido|lib/recepcion-pagos|lib/proveedor-productos|lib/catalogo-empleado|lib/importacion-|lib/caja-venta-service|proxy\.ts|components/business/(etiquetas-precio-lista|cuenta-proveedor-pedidos|importar-productos|permisos-catalogo|producto-proveedores|inventario-tab)|app/api/negocio/(etiquetas-precio|empleados/permisos-catalogo|productos|caja/ventas/inicio)|app/api/operativo/caja/\[slug\]/(catalogo|etiquetas-precio|pedidos|ventas/inicio|ventas/route|recepciones-datos)|app/operaciones/mi-panel/\[slug\]/(etiquetas|productos)|app/negocio/importar-productos|lib/empleado-identidad|lib/mesa-occupancy|lib/mesa-ocupacion-familia|app/api/operaciones/mesas/\[id\]/ocupacion|components/operativo/mesa-occupancy-control|lib/operativo-mozo)" tsc-output.txt; then
             echo "TypeScript errors in F4-B / F4-C1 / F4-C2 / F4-C3 / F4-C4 / F4-C5 / F10-C1 files"; exit 1
           fi
-          echo "F4-B, F4-C1, F4-C2, F4-C3, F4-C4, F4-C5 and F10-C1 files typecheck clean ($(grep -c '^src/' tsc-output.txt) pre-existing diagnostics elsewhere)"
+          if grep -E '^src/(app/mozo/|components/shared/permission-prompt\.tsx|components/superadmin/promocionados-tab\.tsx|lib/push\.ts)' tsc-output.txt; then
+            echo "TypeScript errors in files corrected during T2 continuation"; exit 1
+          fi
+          if [ "$tsc_status" -eq 0 ]; then
+            echo "F4-B, F4-C1, F4-C2, F4-C3, F4-C4, F4-C5 and F10-C1 files typecheck clean; full typecheck is clean."
+          else
+            echo "Scoped files typecheck clean; the required full-project typecheck at the end will report and fail on remaining diagnostics."
+          fi
       # F4-C2: money by method from the real cobros, each suite in its own process, BEFORE the regression
       # batch below (which contains the known intermittent f10-b2-1-turnos:440) so their evidence is never
       # skipped by it; the integration suite writes only to the ephemeral postgres:16 service above.

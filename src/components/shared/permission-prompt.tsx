@@ -168,7 +168,7 @@ export function PermissionPrompt() {
         />
       )}
       <AnimatePresence>
-      {state === "showing" && notifPerm === "default" && (
+      {(state === "requesting" || (state === "showing" && notifPerm === "default")) && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

@@ -575,7 +575,7 @@ function NegocioPromocionadoCard({
             negocioId={negocio.id}
             negocioNombre={negocio.nombre}
             destacadoHasta={negocio.destacadoHasta}
-            onRenovar={onTogglePromocionar}
+            onRenovar={(id, destacadoHasta, periodoDestacado) => onTogglePromocionar(id, true, destacadoHasta, periodoDestacado)}
             isPending={isPending}
           />
           <Button

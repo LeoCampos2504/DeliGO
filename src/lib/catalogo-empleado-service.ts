@@ -31,6 +31,7 @@ export async function permisosCatalogo(client: Db | Tx, negocioId: string, emple
   return { vigente, hasta: e?.catalogoHasta ?? null, crear: vigente && !!e?.catalogoCrear, editar: vigente && !!e?.catalogoEditar, proveedores: vigente && !!e?.catalogoProveedores, precios: vigente && !!e?.catalogoPrecios, costos: vigente && !!e?.catalogoCostos, importar: vigente && !!e?.catalogoImportar }
 }
 const SIN_PERMISO = fail(403, "Tu permiso para el catálogo no está vigente o no incluye esta acción. Pedíselo al dueño.", "CATALOGO_SIN_PERMISO")
+const ETIQUETA_PENDIENTE = fail(409, "Este producto tiene un precio autorizado esperando el cambio de etiqueta. Que el dueño lo resuelva desde «Etiquetas» antes de cambiar el precio.", "ETIQUETA_PENDIENTE")
 
 const precioValido = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0 && v < 1e9
 const costoValido = (v: unknown) => v === null || (typeof v === "number" && Number.isFinite(v) && v >= 0 && v < 1e9)
@@ -155,7 +156,7 @@ export async function editarProductoEmpleado(db: Db, input: { negocioId: string;
   if (!Object.keys(data).length && !cambiosVariantes.length) return fail(400, "No hay cambios para guardar.", "SIN_CAMBIOS")
   const tocaPrecio = "precio" in data || cambiosVariantes.some((c) => "precio" in c.data)
   if (tocaPrecio && (await db.etiquetaPrecio.count({ where: { negocioId, productoId, estado: "PENDIENTE" } }))) {
-    return fail(409, "Este producto tiene un precio autorizado esperando el cambio de etiqueta. Que el dueño lo resuelva desde «Etiquetas» antes de cambiar el precio.", "ETIQUETA_PENDIENTE")
+    return ETIQUETA_PENDIENTE
   }
   const actor = { tipo: "EMPLEADO" as const, id: empleadoId }
   await runBarcodeGuardedWrite(db, { negocioId, claims }, async (tx) => {
@@ -164,8 +165,8 @@ export async function editarProductoEmpleado(db: Db, input: { negocioId: string;
     const tocaDatos = descriptivos.length > 0 || variantes.some((v) => "nombre" in v || "codigoBarras" in v)
     if (!ahora.vigente || (tocaDatos && !ahora.editar) || (tocaPrecio && !ahora.precios) || ("costo" in data && !ahora.costos)) throw new CatalogoError(SIN_PERMISO)
     // El precio pasa por el historial de activaciones (protege las ventas ya iniciadas) a nombre del empleado.
-    if (Object.keys(data).length) await conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId: null }, () => tx.producto.update({ where: { id: productoId }, data }), actor)
-    for (const c of cambiosVariantes) await conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId: c.id }, () => tx.productoVariante.update({ where: { id: c.id }, data: c.data }), actor)
+    if (Object.keys(data).length) await conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId: null }, () => tx.producto.update({ where: { id: productoId }, data }), actor, { etiquetas: tocaPrecio && "precio" in data ? "RECHAZAR" : "NINGUNA", alRechazarEtiqueta: () => { throw new CatalogoError(ETIQUETA_PENDIENTE) } })
+    for (const c of cambiosVariantes) await conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId: c.id }, () => tx.productoVariante.update({ where: { id: c.id }, data: c.data }), actor, { etiquetas: tocaPrecio && "precio" in c.data ? "RECHAZAR" : "NINGUNA", alRechazarEtiqueta: () => { throw new CatalogoError(ETIQUETA_PENDIENTE) } })
     await auditLogWithClient(tx, { userId: empleadoId, userType: "empleado", accion: tocaPrecio ? "producto.precio_cambiado" : "producto.modificado", recurso: "producto", recursoId: productoId, detalle: { negocioId, campos: Object.keys(data), variantes: cambiosVariantes.map((c) => ({ id: c.id, campos: Object.keys(c.data) })), ...("precio" in data ? { precioAnterior: actual.precio, precioNuevo: data.precio } : {}), ...("costo" in data ? { costoAnterior: actual.costo, costoNuevo: data.costo } : {}), origen: "CATALOGO_EMPLEADO" } })
   })
   return { ok: true as const, value: { productoId } }

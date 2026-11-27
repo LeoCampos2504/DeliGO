@@ -16,7 +16,7 @@
 
 import { Prisma, type PrismaClient } from "@prisma/client"
 import { claveStock, esMasReciente } from "@/lib/compras-calculo"
-import { precioActivoBloqueado } from "@/lib/etiquetas-precio-service"
+import { bloquearPrecioYEtiquetasEnTx } from "@/lib/etiquetas-precio-service"
 
 type Db = PrismaClient
 type Tx = Prisma.TransactionClient
@@ -153,7 +153,8 @@ export async function aplicarPreciosEnTx(
       return { ok: false, status: 409, error: "Los precios o costos cambiaron mientras revisabas. Volvé a mirar los precios propuestos.", code: "PRECIOS_CAMBIARON", detalle: { clave: s.clave } }
     }
     // Precio que se cobra hoy, con la fila bloqueada (una confirmación de etiqueta concurrente espera).
-    const vigente = await precioActivoBloqueado(tx, negocioId, p.productoId, p.productoVarianteId)
+    const estadoPrecio = await bloquearPrecioYEtiquetasEnTx(tx, negocioId, p.productoId, p.productoVarianteId)
+    const vigente = estadoPrecio.precio
     if (!vigente || !vigente.eq(p.precioVigente)) {
       return { ok: false, status: 409, error: "Los precios o costos cambiaron mientras revisabas. Volvé a mirar los precios propuestos.", code: "PRECIOS_CAMBIARON", detalle: { clave: s.clave } }
     }

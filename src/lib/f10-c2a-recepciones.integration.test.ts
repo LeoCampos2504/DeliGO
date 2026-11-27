@@ -11,10 +11,14 @@
 
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test"
 import { randomUUID } from "crypto"
+import type { Prisma, PrismaClient } from "@prisma/client"
 import { NextRequest } from "next/server"
 import { db } from "@/lib/db"
 import { createOperationalSession, createSession, OPERATIONAL_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { aprobarRecepcion } from "@/lib/compras-recepciones-service"
+import { conPrecioDeCatalogoEnTx } from "@/lib/etiquetas-precio-service"
+import { CatalogoError, editarProductoEmpleado } from "@/lib/catalogo-empleado-service"
+import { ejecutarImportacion, previsualizarImportacion } from "@/lib/importacion-productos-service"
 
 setDefaultTimeout(300_000)
 
@@ -68,6 +72,22 @@ const req = (method: string, url: string, cookie: string, body?: unknown, key?: 
 const ctx = <T extends Record<string, string>>(p: T) => ({ params: Promise.resolve(p) })
 const enPromesa = <T,>(p: PromiseLike<T>): Promise<T> => Promise.resolve().then(() => p)
 const K = () => randomUUID()
+function barrera() {
+  let liberar!: () => void
+  const espera = new Promise<void>((resolve) => { liberar = resolve })
+  return { espera, liberar }
+}
+async function esperarBloqueosPrecio(minimos: number) {
+  const limite = Date.now() + 10_000
+  while (Date.now() < limite) {
+    const filas = await db.$queryRaw<Array<{ cantidad: number }>>`
+      SELECT count(*)::int AS cantidad FROM pg_stat_activity
+      WHERE datname = current_database() AND wait_event_type = 'Lock' AND query ILIKE '%productos%'`
+    if ((filas[0]?.cantidad ?? 0) >= minimos) return true
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  return false
+}
 
 async function escenario() {
   const suffix = randomUUID().slice(0, 12)
@@ -541,5 +561,102 @@ describe("F10-C2b — unidades de medida y pago en efectivo al recibir (D-7)", (
     const siguen = (await json(await getSinVincularD7(req("GET", "/api/negocio/proveedores/pagos-caja-sin-vincular", e.owner)))).body.pagos
     expect(siguen.some((x: any) => x.comprobante === `Recepción N° ${c2.body.numero}`)).toBe(true)
     expect(await db.compensacionEgresoCaja.count({ where: { negocioId: e.n } })).toBe(0)
+  })
+})
+
+describe("T2 — etiqueta pendiente y escrituras de precio", () => {
+  ephemeralTest("una etiqueta registrada primero bloquea al empleado; una importación atrasada conserva precio y etiqueta, pero aplica los demás campos", async () => {
+    const e = await escenario()
+    const id = K()
+    const empleado = await db.empleado.create({ data: { negocioId: e.n, nombre: "Editor catálogo", codigo: `ED${id.slice(0, 6)}`.toUpperCase(), catalogoHasta: new Date(Date.now() + 3600_000), catalogoEditar: true, catalogoPrecios: true, catalogoCostos: true, catalogoImportar: true, catalogoCrear: true } })
+    const importActor = { tipo: "NEGOCIO" as const }
+    const importBase = { campos: ["nombre", "precio", "categoria", "costo"], filas: [{ fila: 2, nombre: "Yerba 1kg", precio: "4.000", categoria: "Importación T2", costo: "1.700" }] }
+    const previa = await previsualizarImportacion(db, { negocioId: e.n, actor: importActor, body: importBase })
+    if (!previa.ok) throw new Error(previa.code)
+    expect(previa.value.grupos[0].tipo).toBe("EXISTENTE")
+    expect(previa.value.grupos[0].cambios.some((c) => c.startsWith("precio:"))).toBe(true)
+
+    const c = await e.crear(e.borrador([e.linea(e.yerba.id, "1", "1600")]))
+    expect(c.status).toBe(201)
+    const vista = await e.vista(c.body.recepcionId)
+    const propuesta = vista.body.vistaPrevia.preciosVenta.find((p: { productoId: string; estado: string }) => p.productoId === e.yerba.id && p.estado === "PROPUESTO")
+    expect(propuesta).toBeTruthy()
+    const etiquetaCreada = barrera(), continuarAprobacion = barrera()
+    type TxFn = (tx: Prisma.TransactionClient) => Promise<unknown>
+    type TxOptions = { isolationLevel?: Prisma.TransactionIsolationLevel; maxWait?: number; timeout?: number }
+    const instrumentada = new Proxy(db, { get(target, prop, receiver) {
+      if (prop === "$transaction") return (fn: TxFn, options?: TxOptions) => db.$transaction(async (tx) => {
+        const etiquetas = new Proxy(tx.etiquetaPrecio, { get(delegate, key, targetDelegate) {
+          if (key === "create") {
+            const crear = Reflect.get(delegate, key, targetDelegate) as typeof tx.etiquetaPrecio.create
+            return async (args: Parameters<typeof tx.etiquetaPrecio.create>[0]) => {
+              const nueva = await crear.call(delegate, args)
+              etiquetaCreada.liberar()
+              await continuarAprobacion.espera
+              return nueva
+            }
+          }
+          return Reflect.get(delegate, key, targetDelegate)
+        } })
+        const txControlada = new Proxy(tx, { get(actual, key, recv) { return key === "etiquetaPrecio" ? etiquetas : Reflect.get(actual, key, recv) } })
+        return fn(txControlada)
+      }, options)
+      return Reflect.get(target, prop, receiver)
+    } })
+    const aprobacionEnCurso = aprobarRecepcion(instrumentada as PrismaClient, { negocioId: e.n, recepcionId: c.body.recepcionId, body: { version: 1, actualizarPrecios: [{ clave: propuesta.clave, precioPropuesto: propuesta.precioPropuesto }] }, idempotencyKey: K() })
+    await etiquetaCreada.espera
+    const empleadoEnCurso = editarProductoEmpleado(db, { negocioId: e.n, empleadoId: empleado.id, productoId: e.yerba.id, body: { precio: 3500 } })
+    const importacionEnCurso = ejecutarImportacion(db, { negocioId: e.n, actor: importActor, body: { ...importBase, clave: K(), archivo: "precio-atrasado.csv", decisiones: { [previa.value.grupos[0].clave]: "actualizar" } } })
+    const esperaronPorProducto = await esperarBloqueosPrecio(2)
+    continuarAprobacion.liberar()
+    const aprobacion = await aprobacionEnCurso
+    expect(aprobacion.ok).toBe(true)
+    const etiqueta = await db.etiquetaPrecio.findFirstOrThrow({ where: { negocioId: e.n, productoId: e.yerba.id, estado: "PENDIENTE" } })
+    await expect(empleadoEnCurso).rejects.toBeInstanceOf(CatalogoError)
+    const confirmacion = await importacionEnCurso
+    expect(esperaronPorProducto).toBe(true)
+    expect(confirmacion.ok).toBe(true)
+    if (!confirmacion.ok) throw new Error(confirmacion.code)
+    expect(confirmacion.value.resultados[0].resultado).toBe("ACTUALIZADO")
+    expect(confirmacion.value.resultados[0].detalle).toContain("Precio conservado")
+    const producto = await db.producto.findUniqueOrThrow({ where: { id: e.yerba.id } })
+    expect(producto.precio).toBe(3000)
+    expect(producto.costo).toBe(1700)
+    expect(producto.categoria).toBe("Importación T2")
+    expect(producto.stockCantidad).toBe(10)
+    expect((await db.etiquetaPrecio.findUniqueOrThrow({ where: { id: etiqueta.id } })).estado).toBe("PENDIENTE")
+    expect(await db.activacionPrecioVenta.count({ where: { negocioId: e.n, productoId: e.yerba.id } })).toBe(0)
+    expect(await db.movimientoInventario.count({ where: { negocioId: e.n, productoId: e.yerba.id } })).toBe(0)
+    const audit = await db.auditLog.findFirstOrThrow({ where: { recurso: "producto", recursoId: e.yerba.id, accion: "producto.modificado" }, orderBy: { fecha: "desc" } })
+    expect(JSON.parse(audit.detalle).precioProtegidoPorEtiqueta).toBe(true)
+  })
+
+  ephemeralTest("si el catálogo confirma primero, la aprobación con propuesta vieja se rechaza y la relectura usa el precio nuevo", async () => {
+    const e = await escenario()
+    await db.producto.update({ where: { id: e.azucar.id }, data: { costo: 500 } })
+    const c = await e.crear(e.borrador([e.linea(e.azucar.id, "1", "600")]))
+    expect(c.status).toBe(201)
+    const vistaAnterior = await e.vista(c.body.recepcionId)
+    const propuestaAnterior = vistaAnterior.body.vistaPrevia.preciosVenta.find((p: { productoId: string; estado: string }) => p.productoId === e.azucar.id && p.estado === "PROPUESTO")
+    expect(propuestaAnterior).toBeTruthy()
+
+    await db.$transaction((tx) => conPrecioDeCatalogoEnTx(tx, { negocioId: e.n, productoId: e.azucar.id, varianteId: null }, () => tx.producto.update({ where: { id: e.azucar.id }, data: { precio: 1500 } }), null, { etiquetas: "DUEÑO" }))
+    const obsoleta = await e.aprobar(c.body.recepcionId, { version: 1, actualizarPrecios: [{ clave: propuestaAnterior.clave, precioPropuesto: propuestaAnterior.precioPropuesto }] })
+    expect(obsoleta.status).toBe(409)
+    expect(obsoleta.body.code).toBe("PRECIOS_CAMBIARON")
+    expect((await db.producto.findUniqueOrThrow({ where: { id: e.azucar.id } })).precio).toBe(1500)
+    expect(await db.etiquetaPrecio.count({ where: { negocioId: e.n, productoId: e.azucar.id, estado: "PENDIENTE" } })).toBe(0)
+    expect(await db.cambioPrecioVenta.count({ where: { negocioId: e.n, recepcionId: c.body.recepcionId } })).toBe(0)
+    expect(await e.stock(e.azucar.id)).toBe(0)
+
+    const vistaNueva = await e.vista(c.body.recepcionId)
+    const propuestaNueva = vistaNueva.body.vistaPrevia.preciosVenta.find((p: { productoId: string; estado: string }) => p.productoId === e.azucar.id && p.estado === "PROPUESTO")
+    expect(propuestaNueva.precioPropuesto).not.toBe(propuestaAnterior.precioPropuesto)
+    const aprobada = await e.aprobar(c.body.recepcionId, { version: 1, actualizarPrecios: [{ clave: propuestaNueva.clave, precioPropuesto: propuestaNueva.precioPropuesto }] })
+    expect(aprobada.status).toBe(201)
+    const etiqueta = await db.etiquetaPrecio.findFirstOrThrow({ where: { negocioId: e.n, productoId: e.azucar.id, estado: "PENDIENTE" } })
+    expect(etiqueta.precioAnteriorDecimal.toFixed(2)).toBe("1500.00")
+    expect((await db.producto.findUniqueOrThrow({ where: { id: e.azucar.id } })).precio).toBe(1500)
+    expect(await e.stock(e.azucar.id)).toBe(1)
   })
 })

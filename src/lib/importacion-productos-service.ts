@@ -424,21 +424,41 @@ export async function ejecutarImportacion(db: Db, input: { negocioId: string; ac
           const tocaDatos = ["categoria", "marca", "descripcion", "codigoBarras"].some((k) => k in data) || variantes.some((v) => v.codigo)
           if (!ahora?.importar || (tocaPrecio && !ahora.precios) || ("costo" in data && !ahora.costos) || (tocaDatos && !ahora.editar) || (g.proveedorIds.length && !ahora.proveedores)) throw new ErrorGrupo("Tu permiso cambió o venció durante la importación: no se actualizó.")
           if (!(await tx.producto.findFirst({ where: { id: productoId, negocioId, eliminado: false }, select: { id: true } }))) throw new ErrorGrupo("El producto ya no existe en el catálogo.")
-          if (tocaPrecio && (await tx.etiquetaPrecio.count({ where: { negocioId, productoId, estado: "PENDIENTE" } }))) throw new ErrorGrupo("Tiene un precio esperando el cambio de etiqueta: resolvelo desde «Etiquetas» y volvé a importar.")
           const d: Record<string, unknown> = { ...data }
           if (data.precio !== undefined) d.stock = true
-          if (Object.keys(d).length) await conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId: null }, () => tx.producto.update({ where: { id: productoId }, data: d }), actorPrecio)
+          const camposAplicados = new Set<string>()
+          const variantesAplicadas: Array<{ id: string; campos: string[] }> = []
+          let precioProtegidoPorEtiqueta = false
+          if (Object.keys(d).length) await conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId: null }, (etiquetaPendiente) => {
+            const aplicar = { ...d }
+            if (etiquetaPendiente && "precio" in aplicar) {
+              delete aplicar.precio
+              // Este valor sólo acompaña al precio importado; conservarlo cambiaría stock indirectamente.
+              delete aplicar.stock
+              precioProtegidoPorEtiqueta = true
+            }
+            if (!Object.keys(aplicar).length) return Promise.resolve(null)
+            Object.keys(aplicar).forEach((campo) => camposAplicados.add(campo))
+            return tx.producto.update({ where: { id: productoId }, data: aplicar })
+          }, actorPrecio, { etiquetas: "PRESERVAR" })
           for (const v of variantes) {
             const dv: Record<string, unknown> = {}
             if (v.precio !== undefined) dv.precio = v.precio
             if (v.codigo) dv.codigoBarras = v.codigo
-            if (Object.keys(dv).length) await conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId: v.varianteId }, () => tx.productoVariante.update({ where: { id: v.varianteId }, data: dv }), actorPrecio)
+            if (Object.keys(dv).length) await conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId: v.varianteId }, (etiquetaPendiente) => {
+              const aplicar = { ...dv }
+              if (etiquetaPendiente && "precio" in aplicar) { delete aplicar.precio; precioProtegidoPorEtiqueta = true }
+              if (!Object.keys(aplicar).length) return Promise.resolve(null)
+              variantesAplicadas.push({ id: v.varianteId, campos: Object.keys(aplicar) })
+              return tx.productoVariante.update({ where: { id: v.varianteId }, data: aplicar })
+            }, actorPrecio, { etiquetas: "PRESERVAR" })
           }
           for (const proveedorId of g.proveedorIds) {
             if (await asociarEnTx(tx, negocioId, proveedorId, [{ productoId, productoVarianteId: null }])) await auditLogWithClient(tx, { ...quien, accion: "proveedor.productos_asociados", recurso: "proveedor", recursoId: proveedorId, detalle: { negocioId, proveedorId, items: [{ productoId, productoVarianteId: null }], creadas: 1, origen: "IMPORTACION", importacionId: reg!.id } })
           }
-          if (Object.keys(d).length || variantes.length) await auditLogWithClient(tx, { ...quien, accion: tocaPrecio ? "producto.precio_cambiado" : "producto.modificado", recurso: "producto", recursoId: productoId, detalle: { negocioId, campos: Object.keys(data), variantes: variantes.map((v) => ({ id: v.varianteId, campos: Object.keys(v).filter((x) => x === "precio" || x === "codigo") })), cambios: g.cambios, origen: "IMPORTACION", importacionId: reg!.id, filas: g.filas } })
-          await guardarResultado(tx, reg!.id, { ...base(g), resultado: "ACTUALIZADO", detalle: g.cambios.join(" · ") })
+          if (camposAplicados.size || variantesAplicadas.length) await auditLogWithClient(tx, { ...quien, accion: tocaPrecio && !precioProtegidoPorEtiqueta ? "producto.precio_cambiado" : "producto.modificado", recurso: "producto", recursoId: productoId, detalle: { negocioId, campos: [...camposAplicados], variantes: variantesAplicadas, cambios: precioProtegidoPorEtiqueta ? g.cambios.filter((c) => !c.startsWith("precio")) : g.cambios, ...(precioProtegidoPorEtiqueta ? { precioProtegidoPorEtiqueta: true } : {}), origen: "IMPORTACION", importacionId: reg!.id, filas: g.filas } })
+          const detalle = [g.cambios.filter((c) => !precioProtegidoPorEtiqueta || !c.startsWith("precio")).join(" · "), ...(precioProtegidoPorEtiqueta ? ["Precio conservado: hay una etiqueta pendiente; resolvela antes de importarlo."] : [])].filter(Boolean).join(" · ")
+          await guardarResultado(tx, reg!.id, { ...base(g), resultado: "ACTUALIZADO", detalle })
         })
       }
     } catch (error) {

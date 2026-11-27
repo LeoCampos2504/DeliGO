@@ -286,7 +286,7 @@ export async function PUT(
     // F10-C2c: a price edited here is an immediate activation (history for sales already started) and replaces a
     // pending shelf-label price of this product — same transaction as the update.
     const actualizarConPrecio = (tx: Prisma.TransactionClient) =>
-      conPrecioDeCatalogoEnTx(tx, { negocioId, productoId: id, varianteId: null }, () => tx.producto.update({ where: { id }, data: updateData }))
+      conPrecioDeCatalogoEnTx(tx, { negocioId, productoId: id, varianteId: null }, () => tx.producto.update({ where: { id }, data: updateData }), null, { etiquetas: "precio" in updateData ? "DUEÑO" : "NINGUNA" })
     const producto = barcodeClaims.length > 0
       ? await runBarcodeGuardedWrite(db, { negocioId, claims: barcodeClaims }, (tx) => actualizarConPrecio(tx))
       : await db.$transaction((tx) => actualizarConPrecio(tx))

@@ -365,7 +365,7 @@ export default function MozoPanelPage() {
         title="No pudimos cargar el panel"
         description={state.message}
       >
-        <Button className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600" onClick={loadPanel}>
+        <Button className="h-11 w-full gap-2 rounded-xl bg-amber-500 text-white hover:bg-amber-600" onClick={() => void loadPanel()}>
           <RefreshCw className="h-4 w-4" />
           Reintentar
         </Button>

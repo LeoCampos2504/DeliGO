@@ -274,7 +274,7 @@ function MozoScannerContent({ params }: { params: Promise<{ slug: string }> }) {
       <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 gap-6">
         {/* Success state */}
         {scanSuccess ? (
-          <motionSuccess color={color} />
+          <MotionSuccess color={color} />
         ) : !scanning ? (
           <>
             {/* Scan button */}
@@ -407,7 +407,7 @@ function MozoScannerContent({ params }: { params: Promise<{ slug: string }> }) {
 }
 
 // Simple success animation component
-function motionSuccess({ color }: { color: string }) {
+function MotionSuccess({ color }: { color: string }) {
   return (
     <div className="flex flex-col items-center gap-3 animate-in fade-in zoom-in duration-500">
       <div

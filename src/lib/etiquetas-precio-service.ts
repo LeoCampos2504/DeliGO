@@ -32,12 +32,27 @@ export async function precioActivoBloqueado(tx: Tx, negocioId: string, productoI
   if (varianteId) {
     const rows = await tx.$queryRaw<Array<{ precio: number }>>`
       SELECT v."precio" FROM "producto_variantes" v JOIN "productos" p ON p."id" = v."productoId"
-      WHERE v."id" = ${varianteId} AND v."productoId" = ${productoId} AND p."negocioId" = ${negocioId} FOR UPDATE OF v`
+      WHERE v."id" = ${varianteId} AND v."productoId" = ${productoId} AND p."negocioId" = ${negocioId} FOR UPDATE OF p, v`
     return rows[0] ? precio2(Number(rows[0].precio)) : null
   }
   const rows = await tx.$queryRaw<Array<{ precio: number }>>`
     SELECT "precio" FROM "productos" WHERE "id" = ${productoId} AND "negocioId" = ${negocioId} AND NOT "eliminado" FOR UPDATE`
   return rows[0] ? precio2(Number(rows[0].precio)) : null
+}
+
+/**
+ * Shared serialization point for every price/label write on one product.
+ * The no-op MVCC update matters under SERIALIZABLE: SELECT FOR UPDATE alone
+ * can wait while keeping an older snapshot, which would miss a just-inserted
+ * pending label. This changes no logical column value; `productos` has no
+ * update triggers, and callers still write their normal audit/history rows.
+ */
+export async function bloquearPrecioYEtiquetasEnTx(tx: Tx, negocioId: string, productoId: string, varianteId: string | null) {
+  const precio = await precioActivoBloqueado(tx, negocioId, productoId, varianteId)
+  if (!precio) return { precio: null, etiquetaPendiente: false }
+  await tx.$executeRaw`UPDATE "productos" SET "updatedAt" = "updatedAt" WHERE "id" = ${productoId} AND "negocioId" = ${negocioId}`
+  const etiquetas = await tx.etiquetaPrecio.findFirst({ where: { negocioId, productoId, estado: "PENDIENTE" }, select: { id: true } })
+  return { precio, etiquetaPendiente: Boolean(etiquetas) }
 }
 
 async function escribirPrecio(tx: Tx, productoId: string, varianteId: string | null, precio: Prisma.Decimal) {
@@ -132,6 +147,8 @@ export async function resolverEtiquetas(
         omitidas.push({ id, motivo: et.estado === "ACTIVADA" ? `${nombre}: ya estaba actualizada.` : et.estado === "REEMPLAZADA" ? `${nombre}: hay un precio más nuevo autorizado; confirmá esa etiqueta.` : `${nombre}: el dueño la descartó.` })
         continue
       }
+      const bloqueado = await bloquearPrecioYEtiquetasEnTx(tx, negocioId, et.productoId, et.productoVarianteId)
+      if (!bloqueado.precio) { omitidas.push({ id, motivo: `${nombre}: el producto ya no está disponible.` }); continue }
       const ahora = new Date()
       if (accion === "DESCARTAR") {
         const r = await tx.etiquetaPrecio.updateMany({ where: { id, estado: "PENDIENTE" }, data: { estado: "DESCARTADA", resolucion: "DESCARTADA", resueltaEn: ahora, resueltaPorTipo: "NEGOCIO", resueltaPorId: negocioId } })
@@ -141,8 +158,7 @@ export async function resolverEtiquetas(
         continue
       }
       // Activar: el precio activo tiene que seguir siendo el que había al autorizar (si no, la etiqueta quedó vieja).
-      const activo = await precioActivoBloqueado(tx, negocioId, et.productoId, et.productoVarianteId)
-      if (!activo) { omitidas.push({ id, motivo: `${nombre}: el producto ya no está disponible.` }); continue }
+      const activo = bloqueado.precio
       if (!activo.eq(et.precioAnteriorDecimal)) { omitidas.push({ id, motivo: `${nombre}: el precio cambió desde que se autorizó. Pedile al dueño que lo revise.` }); continue }
       const resolucion = accion === "CONFIRMAR" ? "ETIQUETA_CONFIRMADA" : "ACTIVADA_POR_DUENO"
       const r = await tx.etiquetaPrecio.updateMany({ where: { id, estado: "PENDIENTE" }, data: { estado: "ACTIVADA", resolucion, resueltaEn: ahora, resueltaPorTipo: actorTipo, resueltaPorId: actorId } })
@@ -170,10 +186,27 @@ export async function resolverEtiquetas(
  * registra como activación CATALOGO y deja REEMPLAZADA la etiqueta pendiente de ese producto/variante (el dueño fijó
  * otro precio a mano: la etiqueta vieja nunca se activa). Misma transacción que la actualización.
  */
-export async function conPrecioDeCatalogoEnTx<T>(tx: Tx, clave: { negocioId: string; productoId: string; varianteId: string | null }, actualizar: () => Promise<T>, actor: { tipo: "NEGOCIO" | "EMPLEADO"; id: string } | null = null): Promise<T> {
-  const antes = await precioActivoBloqueado(tx, clave.negocioId, clave.productoId, clave.varianteId)
-  const resultado = await actualizar()
+export async function conPrecioDeCatalogoEnTx<T>(
+  tx: Tx,
+  clave: { negocioId: string; productoId: string; varianteId: string | null },
+  actualizar: (etiquetaPendiente: boolean) => Promise<T>,
+  actor: { tipo: "NEGOCIO" | "EMPLEADO"; id: string } | null = null,
+  opciones: { etiquetas?: "NINGUNA" | "DUEÑO" | "RECHAZAR" | "PRESERVAR"; alRechazarEtiqueta?: () => never } = {}
+): Promise<T> {
+  const politica = opciones.etiquetas ?? "NINGUNA"
+  const estado = politica === "NINGUNA"
+    ? { precio: await precioActivoBloqueado(tx, clave.negocioId, clave.productoId, clave.varianteId), etiquetaPendiente: false }
+    : await bloquearPrecioYEtiquetasEnTx(tx, clave.negocioId, clave.productoId, clave.varianteId)
+  if (estado.etiquetaPendiente && politica === "RECHAZAR") {
+    if (opciones.alRechazarEtiqueta) opciones.alRechazarEtiqueta()
+    throw new Error("ETIQUETA_PRECIO_PENDIENTE")
+  }
+  const antes = estado.precio
+  const resultado = await actualizar(estado.etiquetaPendiente)
   const despues = await precioActivoBloqueado(tx, clave.negocioId, clave.productoId, clave.varianteId)
+  if (estado.etiquetaPendiente && politica === "PRESERVAR" && antes && despues && !antes.eq(despues)) {
+    throw new Error("La escritura intentó cambiar un precio protegido por etiqueta pendiente.")
+  }
   if (!antes || !despues || antes.eq(despues) || !antes.gt(0) || !despues.gt(0)) return resultado
   const ahora = new Date()
   await tx.etiquetaPrecio.updateMany({

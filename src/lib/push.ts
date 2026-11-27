@@ -777,9 +777,12 @@ export async function sendPushNotification(
     return false
   }
 
-  let subscription: { endpoint?: string } | null = null
   try {
-    subscription = JSON.parse(subscriptionJson)
+    const subscription = parsePushSubscriptionShape(subscriptionJson)
+    if (!subscription) {
+      console.warn("[Push] Invalid stored subscription shape; notification skipped")
+      return false
+    }
     // R15R (corrección de R15): sin `urgency` explícito, web-push manda
     // "normal" (default documentado de la librería/RFC 8030), y un push
     // service puede diferir esa entrega mientras el dispositivo está en

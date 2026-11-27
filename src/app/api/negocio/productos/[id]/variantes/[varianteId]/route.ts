@@ -84,7 +84,7 @@ export async function PUT(
       barcodeLookupKey(codigoBarrasValue) !== barcodeLookupKey(existing.codigoBarras)
     // F10-C2c: price edits are recorded as activations and replace a pending shelf-label price (same transaction).
     const actualizarConPrecio = (tx: Prisma.TransactionClient) =>
-      conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId }, () => tx.productoVariante.update({ where: { id: varianteId }, data: updateData }))
+      conPrecioDeCatalogoEnTx(tx, { negocioId, productoId, varianteId }, () => tx.productoVariante.update({ where: { id: varianteId }, data: updateData }), null, { etiquetas: "precio" in updateData ? "DUEÑO" : "NINGUNA" })
     const updated = changesCode
       ? await runBarcodeGuardedWrite(
           db,
