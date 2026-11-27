@@ -45,10 +45,13 @@ export const BARCODE_TX_MAX_WAIT_MS = 5_000
 export const BARCODE_TX_TIMEOUT_MS = 15_000
 
 function isSerializationConflict(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034"
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false
+  // A raw SELECT ... FOR UPDATE can surface PostgreSQL SQLSTATE 40001 as P2010,
+  // while Prisma's generated writes report the same Serializable conflict as P2034.
+  return error.code === "P2034" || (error.code === "P2010" && error.meta?.code === "40001")
 }
 
-/** Serializable interactive transaction, retried ONLY on P2034; the last P2034 is rethrown. */
+/** Serializable interactive transaction, retried only on serialization conflicts; the last conflict is rethrown. */
 async function runBarcodeSerializable<T>(client: Pick<PrismaClient, "$transaction">, fn: (tx: Tx) => Promise<T>): Promise<T> {
   let lastError: unknown
   for (let attempt = 1; attempt <= BARCODE_TX_MAX_ATTEMPTS; attempt++) {
