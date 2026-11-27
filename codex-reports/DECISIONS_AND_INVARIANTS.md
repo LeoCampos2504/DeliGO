@@ -1,5 +1,18 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
+## T5 — release candidate decisions (operator, 2026-11-27)
+
+- **Eligibility:** P0-08 keeps Production's `LATEST_SAMPLE_ONLY` tracking; P2-T23, P2-T24 and P2-T54-R1 are excluded from the
+  candidate (history and documents kept to resume them later). 403-persistent re-query deferred (no security,
+  isolation, identity or permission-revocation impact). Table link/QR parity stays the first task after Production + T7.
+- **Integration:** candidate `codex/release-candidata` = TESTING + P0-08 exclusion + explicit merge of `origin/main`
+  (no squash/rebase; `main` fast-forwards later). Conflicts resolved by behavior, keeping the newer certified TESTING
+  behavior; Production-only content preserved or literally appended to documents as HISTORICAL, NOT CURRENT.
+- **Cashier shifts:** every active employee with área caja of an eligible business opens and closes their own shift in
+  TESTING and Production; the F10-B2.2-B pilot gate (TESTING + flag + employee allowlist) is retired. Authority =
+  personal operational session resolver + shift service. No owner-only capability is opened; OBLIGATORIO is never
+  enabled automatically; Railway variables are not edited.
+
 ## T4 — F10-D1 invariants and Caja/Administración, certified in TESTING (operator, 2026-11-27)
 
 - Post-close outflow corrections never reopen or modify a closed shift, never create a shift-less REVERSION

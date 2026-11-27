@@ -1,4 +1,13 @@
-## LATEST UPDATE — T4 CERRADA Y CERTIFICADA EN TESTING · T5 EN ANÁLISIS (2026-11-27)
+## LATEST UPDATE — T5: CANDIDATA A PRODUCTION CONSTRUIDA EN `codex/release-candidata` (2026-11-27)
+
+- Exclusión P0-08 (P2-T23/T24/T54-R1; seguimiento y navegación de Production), merge explícito de `origin/main`
+  (49 conflictos por comportamiento, sin cambios de código respecto de la candidata) y habilitación de los turnos para
+  todo cajero autorizado (piloto de TESTING retirado). `main` es ancestro de la candidata.
+- 36 migraciones pendientes para Production (ensayo en T6). Nada desplegado; `testing-codex` `1a3c33f5`, `main` `42ca5005`.
+- Siguiente: CI del commit final, respaldo de TESTING (70 migraciones), autorización del despliegue de la candidata en
+  TESTING y certificación final proporcional. Handoff: `CODEX_REPORT.md`.
+
+## PRECEDING UPDATE — T4 CERRADA Y CERTIFICADA EN TESTING · T5 EN ANÁLISIS (2026-11-27)
 
 - **T4 (F10-D1 + Caja/Administración): CLOSED_TESTING_CERTIFIED** — operador 14/14 (acumulado T1–T4 50/50), CI
   45947494692 86/86 con 991 pruebas, `testing-codex` = `1a3c33f5` (DeliGO Copy `83c3f9d1`, migración 70 aplicada),

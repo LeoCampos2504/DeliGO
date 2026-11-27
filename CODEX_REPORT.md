@@ -6,7 +6,17 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T4 CERRADA Y CERTIFICADA EN TESTING (14/14; ACUMULADO T1–T4 50/50) · T5 EN ANÁLISIS (2026-11-27)
+=== LATEST HANDOFF — T5 CANDIDATA A PRODUCTION CONSTRUIDA (codex/release-candidata) · CI · DESPLIEGUE EN TESTING PENDIENTE DE AUTORIZACIÓN (2026-11-27)
+
+REPO=rama codex/release-candidata (desde c0cbbd77): fcc85fe9 exclusión P0-08 → 7c892f0e merge de origin/main 42ca5005 → dbf4d317 disparador de CI → 5cbde883 turnos del cajero → docs · main es ancestro (fast-forward posible) · testing-codex 1a3c33f5 · main 42ca5005 intacta · Production intacto
+EXCLUIDOS=P2-T23, P2-T24 y P2-T54-R1 (decisión del operador): 66 commits, 38 archivos — 15 restaurados al blob de main (main = versión previa al linaje), 23 retirados sin consumidores fuera del linaje; incluye 1e241ffd (resync no certificado de la investigación T24 R5) y d15225e2; seguimiento LATEST_SAMPLE_ONLY y navegación de Production; mini-services idéntico a main; historial y documentos conservados
+MERGE=49 conflictos (23 add/add, 26 contenido) resueltos por comportamiento (89 bloques en 43 archivos; siempre el comportamiento certificado más nuevo de TESTING) · 2 duplicados automáticos retirados (applyLoginCookies, bloqueo salon_terminal) · el merge no cambia código respecto de fcc85fe9 · de 484 archivos de main: 402 idénticos, 54 con todas sus líneas, 28 sólo pierden formas reemplazadas · documentos con anexo HISTÓRICO, NO VIGENTE
+TURNOS_CAJERO=decisión del operador: todo empleado activo con área caja de un negocio elegible abre y cierra su propio turno en TESTING y Production; se retiró el piloto F10-B2.2-B (TESTING + flag + lista); las variables DELIGO_F10_B2_2_B_* de Railway quedan sin consumidor (no se modificaron)
+MIGRACIONES=34 de Production idénticas · 70 en la candidata · 36 pendientes para Production (sin DROP TABLE/COLUMN; DROP CONSTRAINT = reemplazos de CHECK; rellenos sólo sobre tablas nuevas; valores por defecto que no activan stock, reservas ni modos de Caja) · ensayo en T6
+CI=dbf4d317: 45956023442 86/86, 991 pruebas (verificado por ChatGPT) · commit final: ver GIT_DEPLOY_HISTORY / informe
+SIGUIENTE_PASO=CI verde del commit final → respaldo de TESTING (70 migraciones) → autorización del fast-forward de testing-codex a la candidata → certificación final proporcional → T6
+
+=== PRECEDING HANDOFF — T4 CERRADA Y CERTIFICADA EN TESTING (14/14; ACUMULADO T1–T4 50/50) · T5 EN ANÁLISIS (2026-11-27)
 
 REPO=worktree deligo-estabilizacion · rama codex/estabilizacion-final (docs de cierre sobre 1a3c33f5) · testing-codex 1a3c33f5 (desplegado, DeliGO Copy 83c3f9d1, 70 migraciones) · main 42ca5005 intacta · Production intacto (DeliGO ccc2184a)
 T4=CLOSED_TESTING_CERTIFIED: F10-D1 (conciliación sin dinero / recupero en turno abierto, topes SQL por egreso y por turno, ajuste F5) + Caja/Administración · operador 14/14 · CI 45947494692 86/86 (991 pruebas) · verificación interna verificacion-t4-20261127T064018Z.json sin discrepancias · HTTP 0 5xx · Mesa Cron sin errores

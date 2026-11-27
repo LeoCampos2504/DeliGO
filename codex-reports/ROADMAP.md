@@ -8,7 +8,8 @@
 | T3 sesiones simultáneas y HTTP 401 (P1-09, P1-10) | **CERTIFICADA EN TESTING** (2026-11-27): dueño, mozo, cajero/PyR y Salón personal (S1 `salon`, S2 `salon_personal`) · corrección de revalidación de ocupación `8eacd113` certificada (M1–M3, T1–T3) · **36/36** pruebas · detalle `T3_SESIONES_SIMULTANEAS_HTTP401.md` |
 | Reorganización Caja / Administración (panel del dueño) | **APROBADA PARA ANTES DE PRODUCTION** (operador, 2026-11-27) · sólo navegación · alcance técnico en `T3_SESIONES_SIMULTANEAS_HTTP401.md`, no implementada · entrará en el próximo ciclo de despliegue a TESTING |
 | T4 F10-D1 | **DISEÑO EN CURSO** (autorizado 2026-11-27; implementación NO autorizada) · `codex-reports/F10_D1_CONCILIACION_EGRESOS_DISENO.md` · obligatoria antes de habilitar egresos y compras en Production |
-| T5 candidata · T6 Production · T7 metodología | Pendientes |
+| T5 candidata | **CONSTRUIDA** en `codex/release-candidata` (exclusión P0-08 + merge de `main` + turnos del cajero); falta desplegarla en TESTING y certificarla |
+| T6 Production · T7 metodología | Pendientes |
 
 Detalle T2: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md` («ESTADO VIGENTE»). La sección siguiente es histórica.
 
