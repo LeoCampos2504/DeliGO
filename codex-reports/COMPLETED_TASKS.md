@@ -2565,3 +2565,61 @@ NO_CERTIFICADO=Excel real · reintentos/idempotencia · simultaneidad · tandas 
 PRODUCTION_TOUCHED=NO
 SEIS_BLOQUES=1–6 CERTIFICADOS EN TESTING · Production NO certificada (main 42ca5005) · siguiente: CONSOLIDACION_FINAL_PRODUCTION_PLAN.md
 ```
+
+## Historial de `main` conservado en la integración T5 (RC1, hasta 2026-09-21) — HISTÓRICO, NO VIGENTE
+
+Contenido que sólo existía en `main` (Production) al integrarlo en `codex/release-candidata`. Se conserva literal
+como antecedente; el estado vigente es el de las secciones anteriores de este documento.
+
+```text
+T44 compartiendo infraestructura) → R3 (implementación completa: owner
+moderno `superadmin` en `PushSubscriptionOwnerType`, dispatcher post-commit
+best-effort cableado en los 6 productores reales, rama `actorFamily=
+superadmin` en las 3 rutas compartidas de push, rama fija en el service
+worker, switch ON/OFF en Configuración) → R3A (pre-physical certification
+gate: cerró `DB_INTEGRATION_TESTS_EXECUTED=NO`/`BUILD=NOT_RUN` que R3 había
+dejado pendientes, y encontró+cerró un gap real de tests para la rama
+`actorFamily=superadmin`) → R3B (la certificación física real encontró un
+401 genuino en `POST /api/push/subscribe?actorFamily=superadmin` con
+sesión SuperAdmin válida; causa raíz forense: `src/proxy.ts`, el
+middleware Edge, nunca reconocía `"superadmin"` como family para el gate
+`AUTH_REQUIRED_PREFIXES` — rechazaba antes de llegar a
+`requireSuperadminSession`, la misma función que `/api/superadmin/
+dashboard` ya usaba con éxito; mismo patrón que P2-T44-R1G
+`cuenta_operativa`, ya documentado en el propio archivo; fix mínimo y
+aislado, deliberadamente sin tocar `SessionFamily`/`ROLE_PROTECTED_ROUTES`)
+→ FINAL (re-certificación física post-fix).
+
+RESULT: COMPLETE — evidencia física post-fix del operador: estado inicial
+`Notificaciones Push=APAGADAS` sin auto-enrollment (`SUPERADMIN_INITIAL_
+OFF_PHYSICAL=PASS`); primer opt-in manual PASS
+(`SUPERADMIN_FIRST_OPTIN_POST_R3B_PHYSICAL=PASS`,
+`R3B_AUTH_FIX_PHYSICAL_RECERTIFICATION=PASS`); entrega física real del
+caso representativo `negocio_pendiente` con `/admin` en segundo plano
+(`SUPERADMIN_PUSH_NEGOCIO_PENDIENTE_PHYSICAL=PASS`,
+`SUPERADMIN_PUSH_REAL_DELIVERY=PASS`,
+
+`PHYSICAL_DEVICE_CLASS=DESKTOP_BROWSER`). Por decisión explícita de
+producto, la certificación en celular y que el tap de la notificación
+navegue a un lugar exacto quedan fuera del criterio de cierre de esta
+tarea (`MOBILE_PHYSICAL_CERT_REQUIRED=NO`,
+`PUSH_CLICK_NAVIGATION_CLASSIFICATION=
+OUT_OF_CERTIFICATION_CRITERIA_BY_PRODUCT_DECISION` — nunca un SKIP por
+imposibilidad técnica). Los otros 5 triggers (`destacado_solicitud`,
+`denuncia_nueva`, `negocio_deuda`, `review_moderation` ×2) no se dispararon
+físicamente — su garantía queda exclusivamente en la cobertura
+automatizada ya certificada de R3/R3A/R3B
+(`OTHER_TRIGGER_AUTOMATED_COVERAGE=PRESERVED`).
+
+NEXT_ACTION=NONE (elegible para una futura evaluación de promoción curada, no ejecutada en este closeout)
+
+Este cierre documenta la certificación física completa en Testing y NO
+autoriza ninguna promoción automática. `main`/Production permanecen sin
+tocar en `ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`.
+Reporte: `C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\
+P2_T39_FINAL_PHYSICAL_CERTIFICATION.md` (ubicación canónica, fuera de este
+worktree). Trazabilidad completa: `P2_T39_R3_SUPERADMIN_PUSH_
+IMPLEMENTATION.md`, `P2_T39_R3A_PRE_PHYSICAL_CERTIFICATION_GATE.md`,
+`P2_T39_R3B_SUPERADMIN_PUSH_AUTH_FAILURE.md` (los 2 últimos también en la
+ubicación canónica del worktree principal).
+```

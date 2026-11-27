@@ -4916,3 +4916,21 @@ D6_RUBRO=la importación del dueño es sólo para negocios genéricos; no se ext
 COSTO=el costo importado modifica el costo del catálogo (producto.costo), nunca los costos históricos de recepciones
 FORMATOS_Y_LIMITES=.xlsx (primera hoja) y .csv · máximo 5 MB · máximo 2000 filas · comunicación de estos límites en la interfaz: mejora futura registrada
 ```
+
+## Historial de `main` conservado en la integración T5 (RC1, hasta 2026-09-21) — HISTÓRICO, NO VIGENTE
+
+Contenido que sólo existía en `main` (Production) al integrarlo en `codex/release-candidata`. Se conserva literal
+como antecedente; el estado vigente es el de las secciones anteriores de este documento.
+
+```text
+## P2-T39-R3 — SuperAdmin Web Push delivery (2026-09-21)
+
+SUPERADMIN_SHARED_ROUTE_PATTERN=ACTORFAMILY_BRANCH_IN_EXISTING_SHARED_FILES (mirrors the already-established cuenta_operativa `?actorFamily=` branch in /api/push/{subscribe,status,unsubscribe} — R2 had floated dedicated /api/superadmin/push/* routes as the "recommended" option, but T40's own subsequent evolution of these same 3 files made the shared-file-with-dedicated-auth-branch pattern the lower-risk, more consistent choice; requireSuperadminSession is the dedicated auth, never the shared SESSION_COOKIE_NAME)
+SUPERADMIN_PUSH_DISPATCH_MODEL=POST_COMMIT_BEST_EFFORT (src/lib/superadmin-push-dispatch.ts — called AFTER notifySuperadmins/notifyReviewModerationSuperadmins' transaction commits, never inside it; a provider failure never rolls back or blocks the originating business operation's HTTP response)
+SUPERADMIN_PUSH_RECIPIENT_RESOLUTION=SAME_TRANSACTION_AS_PERSISTENCE (recipientIds are resolved once, inside the same tx that creates the Notificacion rows — notifySuperadmins/notifyReviewModerationSuperadmins now return {count, recipientIds} instead of a bare count; the dispatcher never re-resolves "who is active" itself, avoiding drift between the persisted rows and who gets pushed)
+SUPERADMIN_PUSH_FANOUT_DEDUP=BY_PHYSICAL_ENDPOINT_ACROSS_RECIPIENTS (mergePushFanoutTargets — two SuperAdmins sharing one physical device/endpoint get exactly one Push, never two)
+SUPERADMIN_PUSH_TYPE_DISPATCH_MODEL=NO_DISPATCH_BY_TYPE (all 5 Notificacion.tipo values persisted for SuperAdmin — negocio_pendiente, destacado_solicitud, denuncia_nueva, negocio_deuda, review_moderation — share ONE fixed SW route: actorFamily=superadmin -> admin icon -> tap always opens/focuses /admin, never a per-entity deep link)
+SUPERADMIN_PUSH_TAP_DESTINATION=/admin (fixed, EXACT_ENTITY_DEEP_LINK_REQUIRED=NO — R2's own explicit decision, preserved unchanged in R3)
+SUPERADMIN_PUSH_UI_HOME=ConfiguracionTab_via_SuperadminPushSettings (single ON/OFF switch, no per-type preferences; reuses the existing shared usePushNotifications({actorFamily:"superadmin"}) hook — no new dedicated hook, since it was already generic enough)
+T40_PUSH_ARCHITECTURE_COMPATIBILITY=PRESERVED_UNCHANGED_FOR_OTHER_4_OWNERS (stale-owner handoff/reconciliation, manual opt-out M2, legacy dual-clear — none touched or extended to superadmin in this round; a future SuperAdmin-to-SuperAdmin handoff extension, if ever pursued, must be pure addition of a new supported family value, never a modification of already-certified T40 behavior)
+```

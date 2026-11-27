@@ -3566,3 +3566,17 @@ Sin commits, push ni despliegues: registro de certificación sobre DeliGO Copy `
 (commit `327d6c73`). Bloque 2 `M11250631` **CERTIFICADO** (operador 21/21, verificación interna 13/13, auditoría de ChatGPT).
 Evidencias: ZIP INCOMPLETO `cffd60d4…` (seis 401 posteriores a las pruebas, conciliados por registro exacto) y ZIP
 definitivo APROBADO `a995816a…0e5d`. Production sin cambios (`42ca5005`).
+
+## Historial de `main` conservado en la integración T5 (RC1, hasta 2026-09-21) — HISTÓRICO, NO VIGENTE
+
+Contenido que sólo existía en `main` (Production) al integrarlo en `codex/release-candidata`. Se conserva literal
+como antecedente; el estado vigente es el de las secciones anteriores de este documento.
+
+```text
+## P2-T39-R3 — SuperAdmin Web Push delivery (2026-09-21)
+
+TESTING_MIGRATIONS=1_APPLIED (20260921120000_add_superadmin_push_owner — additive ALTER TYPE ... ADD VALUE, no backfill)
+TESTING_BOOT_HEALTH=PASS (Ready in 67ms, cero errores/excepciones en logs)
+
+ORIGIN_MAIN=ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763 (sin cambio)
+```

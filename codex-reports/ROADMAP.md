@@ -8382,3 +8382,105 @@ PUBLIC_RELEASE_AUTHORIZED=NO
 ## ACTUALIZACIÓN VIGENTE — F10-B2.2-E (2026-10-14)
 
 D: el operador confirmó deployment manual en TESTING, commit `00e097c`, 43 migraciones aplicadas y 36/36 pruebas locales; la integración PostgreSQL automatizada de C/D sigue pendiente. E: implementación local de custodia física en `prisma/migrations/20261014150000_f10_b2_2_e_cash_custody`; registra entregado + remanente contra el contado inmutable, con historial append-only, idempotencia y endpoints/UI exclusivos del dueño. No crea movimientos financieros. Prisma validate/generate y suites aún no ejecutados en esta sesión porque el host rechazó la ejecución; `.github/workflows/f10-b2-2-e-testing.yml` prepara validación con PostgreSQL efímero sólo al publicar en `testing-codex`. Migración E, commit, push y deployment Railway pendientes. Production, `main` y `32` no se tocaron; F/G/H no iniciadas; modo `OPCIONAL`.
+
+## Historial de `main` conservado en la integración T5 (RC1, hasta 2026-09-21) — HISTÓRICO, NO VIGENTE
+
+Contenido que sólo existía en `main` (Production) al integrarlo en `codex/release-candidata`. Se conserva literal
+como antecedente; el estado vigente es el de las secciones anteriores de este documento.
+
+```text
+P2-T38 — PWA Installation UX — PRIORITY_UNASSIGNED — READY_FUTURE
+
+          (2026-09-21, ver
+          C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports\
+          P2_T39_FINAL_PHYSICAL_CERTIFICATION.md — re-certificación física
+          post-fix del operador: estado inicial de Push apagado sin
+          auto-enrollment PASS, primer opt-in manual PASS, entrega física
+          real de `negocio_pendiente` con `/admin` en background PASS
+          [desktop browser]. Por decisión explícita de producto, la
+          certificación en celular y que el tap navegue a un lugar exacto
+          quedan fuera del criterio de cierre de esta tarea — nunca un SKIP
+          por imposibilidad técnica. Los otros 5 triggers no se dispararon
+          físicamente; su garantía queda en la cobertura automatizada ya
+          certificada de R3/R3A/R3B. `RELEASE_ELIGIBLE_T39=
+          YES_FUTURE_CURATED_PROMOTION_ONLY`, sin promoción ejecutada.
+          `main`/Production intactos en
+          `ff4cc2f875dbf67f7bdfc0229104d8c3c6c08763`).
+          Historia previa a este cierre, preservada sin alterar — R3B
+          encontró un 401 en POST /api/push/subscribe?actorFamily=superadmin
+          con sesión SuperAdmin válida
+          [GET /api/superadmin/dashboard misma sesión = 200]. Causa raíz:
+          src/proxy.ts, el middleware Edge, nunca reconocía "superadmin"
+          como family para el gate de AUTH_REQUIRED_PREFIXES — rechazaba
+          ANTES de llegar a requireSuperadminSession (idéntico al que usa
+          dashboard, nunca el bug del route handler). Mismo patrón exacto
+          que P2-T44-R1G (cuenta_operativa), ya documentado en el propio
+          archivo. Fix aislado (nunca tocó SessionFamily/
+          ROLE_PROTECTED_ROUTES): chequeo de formato hex-64 gateado por
+          ?actorFamily=superadmin. Reproducido y corregido en 2 niveles
+          (proxy.test.ts con token fabricado + integration test de sesión
+          real de punta a punta contra Testing). 314/314 regresión, tsc
+          baseline sin cambio, eslint limpio, build PASS. Commit 1661d87,
+          deploy Testing a6f6c66c SUCCESS. R3A había cerrado los
+          gates que R3 dejó pendientes: DB integration tests contra
+          Testing real [14/15 PASS, 1 timeout ambiental documentado, no un
+          defecto de código], auth contract de actorFamily=superadmin
+          [gap real encontrado y cerrado con 3 archivos de test nuevos],
+          first-opt-in, manual-off, dispatcher wiring, y `next build`
+          PASS. 249/249 regresión T40 preservada. Test-only, commit
+          a1e5fdd, push a testing-codex, autodeploy SUCCESS. T39 sigue sin
+          cerrarse — el operador debe ejecutar la certificación física).
+          R0/R1 auditaron el
+          productor de negocio_pendiente (ya presente, sin cambio de
+          código); R2 diseñó, sin implementar, la entrega Web Push para
+          SuperAdmin, bloqueada entonces por T44 compartiendo la misma
+          infraestructura de Push. Con T44 `PAUSED_UNRESOLVED_AFTER_TIMEBOX`
+          y T40 `CLOSED_TESTING_CERTIFIED`, R3 reconcilió el diseño de R2
+          contra el código actual (delta audit completo, ningún supuesto de
+          R2 invalidado) e implementó: owner moderno `superadmin` en
+          `PushSubscriptionOwnerType` (migración aditiva
+          `20260921120000_add_superadmin_push_owner`), rama
+          `actorFamily=superadmin` en las 3 rutas compartidas de push
+          (mismo patrón que `cuenta_operativa`, con `requireSuperadminSession`
+          dedicado), dispatcher post-commit best-effort
+          (`src/lib/superadmin-push-dispatch.ts`) cableado en los 6
+          callsites reales de `notifySuperadmins`/
+          `notifyReviewModerationSuperadmins`, rama genérica
+          `actorFamily=superadmin` en `public/sw.js` (target fijo `/admin`,
+          sin dispatch por tipo, sin tocar la rama pausada de T44) y un
+          nuevo switch ON/OFF en `ConfiguracionTab` de `/admin` reutilizando
+          `usePushNotifications`. El campo legacy
+          `SuperAdmin.pushSubscription` queda inerte, sin tocar (P2-T17).
+          Commit `a808453`, push a `testing-codex`, deploy Testing
+          verificado (`SUCCESS`, commit exacto, boot limpio, `/admin`
+          responde 200). Matriz de certificación física preparada,
+          encabezada por `negocio_pendiente`; el operador debe ejecutarla
+          antes de cerrar T39 — Claude no ejecutó ni simuló certificación
+          física en esta ronda.
+
+P2-T23 — movimiento exterior —
+  REOPENED_H2A_PHYSICALLY_VALIDATED_H2B_PHYSICALLY_CERTIFIED_AWAITING_FILTER_CALIBRATION_DECISION
+  (ver P2_T23_H4_FILTER_CALIBRATION_PROBE_PREPARATION.md, la ronda más
+  reciente — H1-H4 reabrieron T23 después de su cierre R3C previo por un
+  hallazgo de suavidad/calibración; ya NO depende de P2-T02, que cerró en
+  R6; NEXT_ACTION=WAIT_FOR_OPERATOR_H4_FILTER_CALIBRATION_PROBE, no
+  ejecutada)
+P2-T24 — final delivery GPS —
+  IMPLEMENTED_PARTIALLY_TESTING_BLOCKED_NOT_RELEASE_ELIGIBLE (ver
+  P2_T24_PHYSICAL_REAL_GPS_CERTIFICATION.md; depende de que se resuelva
+  la decisión de calibración de T23 antes de continuar)
+P2-T54 — Driver Turn-by-Turn Follow Camera UX — FUTURE_AFTER_T02_T23_T24
+          (T02 ya cerró; sigue esperando a T23/T24)
+P2-T34 — Android Cliente/Repartidor Session Isolation — READY_TO_START,
+          bloqueada para certificación/avance físico por falta de Android
+
+NEXT_RECOMMENDED_SOFTWARE_TASK=P2-T38_OR_P2-T33
+NEXT_RECOMMENDED_SOFTWARE_TASK_TITLE=Funcionales independientes de menor prioridad, sin gate físico pendiente (PRIORITY_UNASSIGNED)
+NEXT_RECOMMENDED_SOFTWARE_TASK_PRIORITY=PRIORITY_UNASSIGNED
+NEXT_RECOMMENDED_SOFTWARE_TASK_REASON=P2-T39 cerró CLOSED_TESTING_CERTIFIED (2026-09-21) tras R3 (implementación) + R3A (pre-physical gate) + R3B (root cause + fix de un 401 físico real en src/proxy.ts) + certificación física final (negocio_pendiente PASS, ver P2_T39_FINAL_PHYSICAL_CERTIFICATION.md). T40 también cerrado. No queda ningún P1/P2 con implementación nueva lista y pendiente en el backlog activo — sólo quedan tareas PRIORITY_UNASSIGNED (T38, T33) sin gate físico ni de implementación bloqueante.
+
+P2-T23 NO es "próxima tarea de software" — está `REOPENED_...AWAITING_FILTER_CALIBRATION_DECISION`,
+  requiere una decisión/sonda del operador antes de cualquier código nuevo.
+
+## Backlog activo — orden auditado (dependencias duras verificadas, no por comodidad)
+```

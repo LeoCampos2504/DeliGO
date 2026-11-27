@@ -110,3 +110,12 @@ NEXT_ACTION=P2_T44_R1P6J_SINGLE_PHYSICAL_ABSOLUTE_URL_PROBE
 R1P6J queda solamente preparado: una única sonda con Operations Home abierta
 o recargada, luego background, un pedido retiro ya existente del fixture,
 un Push y un tap. No ejecutar la sonda en esta tarea.
+
+## Historial de `main` conservado en la integración T5 (RC1, hasta 2026-09-21) — HISTÓRICO, NO VIGENTE
+
+Contenido que sólo existía en `main` (Production) al integrarlo en `codex/release-candidata`. Se conserva literal
+como antecedente; el estado vigente es el de las secciones anteriores de este documento.
+
+```text
+R1P6I_COMMIT_SHA=PENDING_COMMIT
+```
