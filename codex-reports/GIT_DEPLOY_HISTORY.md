@@ -1,5 +1,14 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## T2 — CI-only pushes of codex/estabilizacion-final (2026-11-26, Codex; recorded by Claude Code)
+
+```text
+AUTHORIZATION=operator: push only codex/estabilizacion-final for CI during T2 (no deploy; authorization limited to T2)
+BRANCH_HEAD=8ca2053eb635d1a2c2ce7fa54bebf0eba14c1e69 (remote matches) · main 42ca5005 and testing-codex 327d6c73 unchanged
+CI_RUNS=45918851134 (e8a24002, fail: revocation probe predicate) · 45919159203 (1a6df234, fail: P2010/40001) · 45919595597 (f3f8b185, fail: stock baseline) · 45919963626 (fd80bad8, success 805/0/0) · 45920504402 (cee9f94b, success 805/0/0) · 45921529454 job 140253127200 (8ca2053e, success 805/0/0 — final)
+DEPLOY=NONE (workflow has no deploy step; Railway TESTING deploys only from testing-codex)
+```
+
 ## F4-B justified prices — testing-codex integration + Railway TESTING (2026-11-04)
 
 ```text

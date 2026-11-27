@@ -1,5 +1,19 @@
 # COMPLETED TASKS — DeliGO (índice compacto)
 
+## T2 — STABILIZATION SECURITY AND TECHNICAL HEALTH — TECHNICALLY_APPROVED_BY_CI (2026-11-26; NOT functionally certified)
+
+```text
+T2_STATUS=TECHNICALLY_APPROVED_BY_CI (not a functional certification; TESTING regressions pending with the joint T1–T3 deploy)
+T2_BRANCH=codex/estabilizacion-final (worktree deligo-estabilizacion) · base 327d6c739a55e2f6b5da89f1ec125a24013eb345
+T2_COMMITS=a995d894 84a29bf4 8f02a377 f63c8365 a2306f47 23569693 04456072 70d0b253 e8a24002 1a6df234 f3f8b185 fd80bad8 cee9f94b 7227e072 8ca2053e (code final fd80bad8; last three docs only)
+T2_CI=run 45921529454 · job 140253127200 · head 8ca2053eb635d1a2c2ce7fa54bebf0eba14c1e69 · completed/success · 59 test commands · 805 pass / 0 fail / 0 skipped reported · PostgreSQL 16 ephemeral · full typecheck · build · C5 · T1 tests
+T2_PREVIOUS_GREEN_RUNS=45919963626 (fd80bad8) · 45920504402 (cee9f94b)
+T2_MAIN_CHANGES=transactional permission revalidation (catalog create/edit, imports, supplier link/unlink) · bloquearPrecioYEtiquetasEnTx label/price serialization (both orders tested) · P2034 + P2010/40001 retry · import concurrency/idempotency/limits · C5 in general CI · 40 → 0 code TS diagnostics
+T2_LIMITS=no new automated XLSX parser test · Excel-saved XLSX → T5 · 2 local TS diagnostics from ungenerated historical Prisma clients · coverage not exhaustive of every combination
+REPORT=codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md (ESTADO VIGENTE)
+PRODUCTION_TOUCHED=NO · TESTING_TOUCHED=NO
+```
+
 ## F10-C1 — CASH OUTFLOWS OF CAJA (C1a engine + C1b cashier UI + C1c owner panel) — CLOSED_TESTING_CERTIFIED (2026-11-19, functional)
 
 ```text

@@ -1,5 +1,30 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
+## T2 result and T3 authorization (operator, 2026-11-26)
+
+- **T2 is TECHNICALLY APPROVED BY CI** on `8ca2053eb635d1a2c2ce7fa54bebf0eba14c1e69` (run `45921529454`, job
+  `140253127200`, 805 pass / 0 fail / 0 skipped). CI approval is **not** functional certification: T1 and T2 still
+  need their regressions in Railway TESTING.
+- **T2 invariants (must not be weakened by T3 or later work):**
+  - transactional permission revalidation with `FOR SHARE` versus employee revocation (create/edit, imports,
+    supplier association/dissociation);
+  - `bloquearPrecioYEtiquetasEnTx` as the single serialization point for price/label writes (product/variant lock +
+    no-op `UPDATE` under SERIALIZABLE); owner keeps manual edit/label replacement; employee keeps 409;
+  - retry on P2034 and on P2010 with SQLSTATE 40001;
+  - sale without price rejected; cost hiding; import idempotency; stock authority R3A; C5 in general CI;
+  - the T2 automated tests stay in the general workflow.
+- **XLSX:** no new automated parser test; the Microsoft Excel saved file stays in T5; do not reopen happy-dom attempts.
+- **Local TypeScript:** the 2 diagnostics from the ungenerated historical Prisma clients are environmental; the valid
+  gate is the isolated CI install. Do not modify the shared `node_modules`.
+- **T3 authorized** (P1-09 identity in simultaneous sessions; P1-10 the 116 HTTP 401). Principle: the client-declared
+  actor family may only *select* the credential; the server still verifies credential, actor, family, business, role,
+  active state, permissions and resource access. No ambiguous fallback between families; legitimate rejections stay.
+  Push authorized only for `codex/estabilizacion-final` (CI), never deploy; the earlier T2 push authorization to Codex
+  does not carry over.
+- **Skill contradictions recorded, skills NOT modified:** `deligo-safe-task` §A (root `deligo-main-limpio`, branch
+  `testing-codex`) versus the authorized stabilization worktree/branch; `deligo-closeout` §B (FULL_CONTEXT untracked)
+  versus reality (tracked).
+
 ## T0/T1 authorization, P0-08 and public-repository privacy (operator, 2026-11-26)
 
 - **P0-08 / P2-T24:**

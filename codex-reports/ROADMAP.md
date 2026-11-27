@@ -1,4 +1,17 @@
-## Actualización T2 — EN CURSO, NO CERRADO
+## Estado de la estabilización (vigente, 2026-11-26)
+
+| Tanda | Estado |
+|---|---|
+| T0 documentación | COMPLETADA |
+| T1 nueve correcciones visuales | Implementada · CI aprobado · **pendiente certificación funcional en Railway TESTING** |
+| T2 seguridad y salud técnica | **TÉCNICAMENTE APROBADA POR CI** en `8ca2053e` (run `45921529454`, job `140253127200`, 805/0/0) · pendientes las regresiones funcionales del despliegue conjunto · XLSX de Excel real en T5 |
+| T3 sesiones simultáneas y HTTP 401 (P1-09, P1-10) | **AUTORIZADA** 2026-11-26 · en curso en `codex/estabilizacion-final` |
+| T4 F10-D1 | Pendiente · obligatoria antes de habilitar egresos y compras en Production |
+| T5 candidata · T6 Production · T7 metodología | Pendientes |
+
+Detalle T2: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md` («ESTADO VIGENTE»). La sección siguiente es histórica.
+
+## Actualización T2 — EN CURSO, NO CERRADO (HISTÓRICO, superado por el CI final de `8ca2053e`)
 
 Reanudación 2026-11-26: worktree `C:\Leo Campos\Trabajo\deligo-estabilizacion`, rama `codex/estabilizacion-final`, HEAD recuperado `2356969316b81c8f9456ac9747093c46992e5ac4`, base certificada `327d6c739a55e2f6b5da89f1ec125a24013eb345`. Continuación en commit local `04456072`; cinco commits T2 previos conservados. Tests estáticos históricos R2B-F1/R2C/I3 69/69 y ESLint focalizado PASS; typecheck global aún tiene 9 diagnósticos. La revocación concurrente y pruebas de importación ampliadas están escritas, aún pendientes de PostgreSQL CI. No se declara cerrada T2: sigue sin resolver/probar la carrera de etiquetas; faltan huecos D-3, XLSX sintético y typecheck limpio. Sin push, CI remoto, migraciones, despliegue ni T3. Matriz actualizada: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md`. La contradicción de `deligo-closeout` sobre FULL_CONTEXT versionado sigue pendiente.
 

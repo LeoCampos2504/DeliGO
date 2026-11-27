@@ -1,4 +1,51 @@
-# T2 — seguridad y salud técnica: avance local, NO cerrado
+# T2 — seguridad y salud técnica: TÉCNICAMENTE APROBADA POR CI
+
+## ESTADO VIGENTE — regularización documental (Claude Code, 2026-11-26)
+
+> Esta sección prevalece sobre todo lo que sigue. Las secciones de abajo se conservan sin cambios como **antecedentes
+> históricos** (incluido el título original «avance local, NO cerrado» y las matrices donde PostgreSQL, la carrera de
+> etiquetas y el typecheck figuran pendientes): describen etapas anteriores al CI final.
+
+- **Estado:** **T2 TÉCNICAMENTE APROBADA POR CI.** No es una certificación funcional: T1 y los cambios funcionales de T2
+  todavía requieren las regresiones correspondientes en Railway TESTING (despliegue conjunto T1–T3, D-4).
+- **Commit validado:** `8ca2053eb635d1a2c2ce7fa54bebf0eba14c1e69` (HEAD final de T2; los commits `cee9f94b`, `7227e072`
+  y `8ca2053e` son sólo documentales sobre el código T2 `fd80bad8`).
+- **CI final:** run [`45921529454`](https://github.com/LeoCampos2504/DeliGO/actions/runs/45921529454), job
+  `140253127200` (`validate`), workflow `F10-B2.2-E TESTING validation`, rama `codex/estabilizacion-final`.
+  Estado `completed` / `success` (verificado también por Claude vía la API pública de GitHub: `head_sha` exacto).
+- **Resultados verificados por ChatGPT en los logs del job:** 59 comandos de prueba · **805 aprobadas · 0 fallidas ·
+  0 omitidas informadas** · PostgreSQL 16 efímero aprobado · typecheck completo aprobado · build aprobado · C5
+  ejecutada · pruebas de seguridad, importaciones y concurrencia aprobadas · pruebas automatizadas de T1 aprobadas.
+- **Runs anteriores (sin reescribir):** run 4 `45919963626` sobre `fd80bad8` (805/0/0) y run 5 `45920504402` sobre
+  `cee9f94b` (805/0/0); runs 1–3 con los fallos ya descritos abajo.
+- Ramas intactas: `main` `42ca5005`, `testing-codex` `327d6c73`.
+
+### Matriz de cobertura vigente (ejecutada en CI sobre `8ca2053e`; no es exhaustiva)
+
+| Área | Ejecutado en CI | Límite explícito |
+|---|---|---|
+| Revocación de permisos de catálogo (alta, edición, importación, proveedores) | Revocación confirmada antes de la autorización → rechazo sin efectos; alta con `FOR SHARE` primero → se ordena antes y la siguiente se rechaza; revocación parcial de precio/costo/edición; asociación/desasociación de proveedores; datos de otro negocio | No todas las combinaciones de los seis permisos × rutas |
+| Etiquetas pendientes vs. precio | `bloquearPrecioYEtiquetasEnTx`: ambos órdenes concurrentes (etiqueta primero → empleado bloqueado e importación conserva precio/etiqueta; catálogo primero → propuesta vieja rechazada y relectura con el precio nuevo); retry P2034 y P2010/SQLSTATE 40001 | Dueño conserva edición manual y reemplazo de etiquetas |
+| Venta sin precio | Ruta real rechaza; control positivo de venta válida | — |
+| Importación | Confirmaciones concurrentes, reintentos, idempotencia, 151 grupos (frontera 150), asociaciones, variantes, sin auditorías duplicadas en los casos probados, límites de filas, identificaciones repetidas, revocación, nombre, celdas vacías, costo, etiquetas pendientes | No se declaran certificadas todas las combinaciones posibles |
+| C5 (inicio de venta vencido) | `f10-c2c-inicio-vencido.integration.test.ts` en el CI general | Rama `codex/b4-c5-inicio-vencido` se conserva como evidencia |
+| Contratos históricos | R2B-F1/R2C/I3, F10-B1, F9, stock I3, formatos (focalizados antes; todos en el CI final) | — |
+| TypeScript / build | Typecheck completo y build aprobados en CI | Localmente quedan 2 diagnósticos por los clientes Prisma históricos (`client-sqlite`, `client-postgres`) no generados; en CI se generan en la instalación aislada. No se modifica `node_modules` compartido |
+| XLSX | Formatos CSV/argentinos 3/3 | **No** se completó una prueba automatizada nueva del parser XLSX; el archivo guardado por Microsoft Excel queda para **T5**. No reabrir happy-dom |
+
+### Pendientes y referencias de continuidad
+
+- Regresiones funcionales de T1 y T2 en Railway TESTING tras el despliegue conjunto T1–T3 (requiere autorización).
+- XLSX real de Microsoft Excel: T5.
+- Contradicciones de skills registradas, **sin modificarlos**: `deligo-safe-task` §A fija la raíz `deligo-main-limpio`
+  y la rama `testing-codex`, mientras la estabilización trabaja en el worktree `deligo-estabilizacion` sobre
+  `codex/estabilizacion-final` por autorización del operador; `deligo-closeout` §B trata
+  `DELIGO_FULL_CONTEXT_LATEST.md` como no versionado, pero está versionado.
+- Siguiente tarea: **T3** (sesiones simultáneas y HTTP 401), autorizada el 2026-11-26.
+
+---
+
+# Antecedentes históricos de T2 (título original: «T2 — seguridad y salud técnica: avance local, NO cerrado»)
 
 ## Actualización al reanudar — 2026-11-26, runs de CI 1–5
 

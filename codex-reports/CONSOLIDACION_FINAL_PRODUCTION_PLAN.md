@@ -4,6 +4,17 @@ Fecha: 2026-11-26 · Revisión 2.
 
 Estado: **PLAN DEFINITIVO APROBADO por el operador (D-1…D-7, T0–T7)**.
 
+**Estado vigente de las tandas (2026-11-26, regularización documental de Claude Code; prevalece sobre las
+actualizaciones de abajo, que quedan como antecedentes):**
+- **T0** completada. **T1** implementada con CI aprobado, pendiente de certificación funcional en Railway TESTING.
+- **T2 TÉCNICAMENTE APROBADA POR CI** en `8ca2053eb635d1a2c2ce7fa54bebf0eba14c1e69` (run `45921529454`, job
+  `140253127200`: 59 comandos, 805/0/0, PostgreSQL efímero, typecheck completo y build). El §18 fue ejecutado por Codex;
+  su texto queda como plan histórico. Límites: XLSX de Excel real en T5; sin prueba automatizada nueva del parser XLSX;
+  regresiones funcionales pendientes en TESTING. Detalle: `T2_SEGURIDAD_SALUD_TECNICA.md`.
+- **T3 autorizada** (P1-09 y P1-10), con push exclusivo de `codex/estabilizacion-final` para CI; sin despliegue.
+- La frase «F10-D1, T2 y T3 siguen sin autorizar» de la actualización siguiente es histórica: T2 y T3 ya fueron
+  autorizadas; F10-D1 (T4) sigue sin autorizar.
+
 **Actualización (operador, 2026-11-26, autorización de T0 y T1):**
 - **T0 y T1 autorizados** en la rama `codex/estabilizacion-final` (worktree `C:\Leo Campos\Trabajo\deligo-estabilizacion`, base `327d6c739a55e2f6b5da89f1ec125a24013eb345`), con commits **locales**.
 - **Sin push, merge, cherry-pick ni despliegues.**
@@ -680,7 +691,7 @@ Móvil y escritorio, modo claro y oscuro:
 
 Evidencia a revisar: HTTP sin 5xx, logs y, si hubo una salida o un pago, SQL de solo lectura.
 
-## 18. Plan concreto para T2 (no ejecutado; requiere autorización)
+## 18. Plan concreto para T2 (histórico: ejecutado por Codex; T2 técnicamente aprobada por CI en `8ca2053e`, run `45921529454`)
 
 1. **C5 en el CI general (D-7):**
    - copiar `src/lib/f10-c2c-inicio-vencido.integration.test.ts` desde `3c498c24` (sólo el archivo, sin cherry-pick);

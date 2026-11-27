@@ -1,4 +1,21 @@
-## LATEST UPDATE — T2 REANUDADA, EN CURSO, NO CERRADA (2026-11-26)
+## LATEST UPDATE — T2 TÉCNICAMENTE APROBADA POR CI · T3 AUTORIZADA (2026-11-26)
+
+- **Agente:** Claude Code retoma el desarrollo tras el uso temporal de Codex. No se reinicia nada ni se repiten T0–T2.
+- **Repositorio:** worktree `C:\Leo Campos\Trabajo\deligo-estabilizacion`, rama `codex/estabilizacion-final`, HEAD final de
+  T2 `8ca2053eb635d1a2c2ce7fa54bebf0eba14c1e69` (publicado). `testing-codex` `327d6c73` y `main` `42ca5005` intactas.
+- **T2:** **técnicamente aprobada por CI** — run [`45921529454`](https://github.com/LeoCampos2504/DeliGO/actions/runs/45921529454),
+  job `140253127200`: 59 comandos, 805 aprobadas, 0 fallidas, 0 omitidas informadas; PostgreSQL efímero, typecheck
+  completo y build aprobados; C5, seguridad, importaciones, concurrencia y pruebas T1 ejecutadas.
+- **Límites:** sin prueba automatizada nueva del parser XLSX; Excel real en T5; 2 diagnósticos TS locales por clientes
+  Prisma históricos (en CI aprueba); T1 y T2 sin regresión funcional en TESTING todavía.
+- **Preservar:** permisos con `FOR SHARE`, `bloquearPrecioYEtiquetasEnTx`, retry P2034 / P2010-40001, venta sin precio,
+  idempotencia de importaciones, R3A.
+- **Skills:** contradicciones de `deligo-safe-task` §A (raíz/rama) y `deligo-closeout` §B (FULL_CONTEXT versionado)
+  registradas, sin modificar los skills.
+- **Siguiente:** T3 (sesiones simultáneas y HTTP 401), autorizada con push exclusivo de esta rama para CI; sin despliegue.
+- Detalle: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md` («ESTADO VIGENTE»); handoff: `CODEX_REPORT.md`.
+
+## UPDATE (HISTÓRICO, superado por el CI final) — T2 REANUDADA, EN CURSO, NO CERRADA (2026-11-26)
 
 Worktree `C:\Leo Campos\Trabajo\deligo-estabilizacion`, rama `codex/estabilizacion-final`, HEAD recuperado `2356969316b81c8f9456ac9747093c46992e5ac4`, base certificada `327d6c739a55e2f6b5da89f1ec125a24013eb345`. Continuación en commit local `04456072`; cinco commits T2 previos conservados. R2B-F1/R2C/I3 estáticos: 69/69; ESLint focalizado PASS. Typecheck completo: 9 diagnósticos restantes. Pruebas ampliadas de revocación concurrente e importación están escritas pero no ejecutadas contra PostgreSQL. La carrera de etiquetas pendientes sigue sin resolver/certificar; D-3 aún tiene huecos, XLSX sintético no probado en parser XML compatible y typecheck no está limpio. Workflow usa PostgreSQL 16 efímero, sin deploy; CI remoto pendiente. Sin push, migraciones, base persistente ni T3. Informe vigente: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md`. La contradicción de `deligo-closeout` sobre el contexto completo versionado sigue pendiente.
 
