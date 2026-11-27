@@ -33,13 +33,7 @@ const MESSAGE_FIELDS = new Set([
 ])
 
 const READ_FIELDS = new Set(["pedidoId", "readBy", "userType"])
-const TRACKING_FIELDS = new Set(["pedidoId", "lat", "lng", "timestamp", "version", "trajectory", "matchedTrajectory"])
-const MAX_TRACKING_TRAJECTORY_POINTS = 12
-const MAX_TRACKING_TRAJECTORY_DURATION_MS = 5000
-const MAX_TRACKING_TRAJECTORY_DISTANCE_METERS = 150
-const MATCHED_TRAJECTORY_FIELDS = new Set(["lat", "lng", "offsetMs"])
-const MAX_MATCHED_VISUAL_POINTS_PER_BATCH = 48
-const MAX_MATCHED_REALTIME_PAYLOAD_BYTES = 16 * 1024
+const TRACKING_FIELDS = new Set(["pedidoId", "lat", "lng", "timestamp", "version"])
 
 function schemaError(code) {
   const error = new Error(code)
@@ -132,59 +126,6 @@ function validateTrackingPayload(payload, resourceId) {
       throw schemaError("SCHEMA_INVALID_PAYLOAD")
     }
   }
-  if (payload.trajectory !== undefined) {
-    if (!Array.isArray(payload.trajectory) || payload.trajectory.length < 1 || payload.trajectory.length > MAX_TRACKING_TRAJECTORY_POINTS) {
-      throw schemaError("SCHEMA_INVALID_PAYLOAD")
-    }
-    let previousOffset = -1
-    let previousPoint = null
-    let distanceMeters = 0
-    for (const point of payload.trajectory) {
-      if (!isPlainObject(point) || !Number.isFinite(point.lat) || point.lat < -90 || point.lat > 90 ||
-          !Number.isFinite(point.lng) || point.lng < -180 || point.lng > 180 ||
-          !Number.isFinite(point.offsetMs) || point.offsetMs < 0 ||
-          point.offsetMs > MAX_TRACKING_TRAJECTORY_DURATION_MS || point.offsetMs < previousOffset) {
-        throw schemaError("SCHEMA_INVALID_PAYLOAD")
-      }
-      if (previousPoint) {
-        if (previousPoint.lat === point.lat && previousPoint.lng === point.lng) {
-          throw schemaError("SCHEMA_INVALID_PAYLOAD")
-        }
-        const toRadians = (degrees) => (degrees * Math.PI) / 180
-        const latitudeDelta = toRadians(point.lat - previousPoint.lat)
-        const longitudeDelta = toRadians(point.lng - previousPoint.lng)
-        const a = Math.sin(latitudeDelta / 2) ** 2 +
-          Math.cos(toRadians(previousPoint.lat)) * Math.cos(toRadians(point.lat)) *
-          Math.sin(longitudeDelta / 2) ** 2
-        distanceMeters += 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-      }
-      previousPoint = point
-      previousOffset = point.offsetMs
-    }
-    if (!previousPoint || previousPoint.lat !== payload.lat || previousPoint.lng !== payload.lng ||
-        distanceMeters > MAX_TRACKING_TRAJECTORY_DISTANCE_METERS) {
-      throw schemaError("SCHEMA_INVALID_PAYLOAD")
-    }
-  }
-  if (payload.matchedTrajectory !== undefined) {
-    if (!Array.isArray(payload.matchedTrajectory) ||
-        payload.matchedTrajectory.length < 1 ||
-        payload.matchedTrajectory.length > MAX_MATCHED_VISUAL_POINTS_PER_BATCH) {
-      throw schemaError("SCHEMA_INVALID_PAYLOAD")
-    }
-    let previousOffset = -1
-    for (const point of payload.matchedTrajectory) {
-      if (!isPlainObject(point)) throw schemaError("SCHEMA_INVALID_PAYLOAD")
-      assertOnlyFields(point, MATCHED_TRAJECTORY_FIELDS)
-      if (!Number.isFinite(point.lat) || point.lat < -90 || point.lat > 90 ||
-          !Number.isFinite(point.lng) || point.lng < -180 || point.lng > 180 ||
-          !Number.isFinite(point.offsetMs) || point.offsetMs < 0 ||
-          point.offsetMs < previousOffset) {
-        throw schemaError("SCHEMA_INVALID_PAYLOAD")
-      }
-      previousOffset = point.offsetMs
-    }
-  }
   return payload
 }
 
@@ -211,10 +152,6 @@ function parseAndValidateEnvelope(rawBody) {
     validateReadPayload(parsed.payload, resourceId)
   } else {
     validateTrackingPayload(parsed.payload, resourceId)
-    if (parsed.payload.matchedTrajectory !== undefined &&
-        Buffer.byteLength(JSON.stringify(parsed), "utf8") > MAX_MATCHED_REALTIME_PAYLOAD_BYTES) {
-      throw schemaError("SCHEMA_MATCHED_PAYLOAD_TOO_LARGE")
-    }
   }
 
   return parsed
@@ -222,8 +159,6 @@ function parseAndValidateEnvelope(rawBody) {
 
 module.exports = {
   EVENT_TYPES,
-  MAX_MATCHED_REALTIME_PAYLOAD_BYTES,
-  MAX_MATCHED_VISUAL_POINTS_PER_BATCH,
   ORDER_ID_PATTERN,
   parseAndValidateEnvelope,
   schemaError,

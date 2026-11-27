@@ -528,21 +528,6 @@ describe("T11-T12 — heartbeat + new delivery while stationary", () => {
   })
 })
 
-describe("R3A — bounded trajectory transport", () => {
-  test("STATIONARY_90_SECONDS_NO_TRAJECTORY_POST: fake-time stationary callbacks never create a trajectory batch", async () => {
-    controller = createController()
-    controller.render([delivery("p1")])
-    const watchId = lastWatchId()
-    await sendInitialAndResolve("p1", watchId, -34.6, -58.4, 5)
-
-    advanceTime(90000)
-    await act(async () => { await Promise.resolve() })
-
-    const bodies = fetchMock.mock.calls.map((call: unknown[]) => JSON.parse((call[1] as { body: string }).body) as Record<string, unknown>)
-    expect(bodies.some((body) => body.trajectory !== undefined)).toBe(false)
-  })
-})
-
 // ============================================
 // T13-T15 — multi-delivery fan-out / removal / last-removed
 // ============================================
@@ -739,16 +724,6 @@ describe("T24 — HTTP single-flight", () => {
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
 
-    // P2-T23-H2: a real device never reports two watchPosition callbacks with
-    // byte-identical timestamps — advance the clock by 1ms so this sample's
-    // capturedAt is strictly newer than the in-flight anchor. Without this,
-    // acceptTrackingTrajectoryPoint's own (correct, deliberate)
-    // non_monotonic_timestamp guard rejects it from ever entering the
-    // trajectory buffer, which is exactly why this test regressed to
-    // pendingSendTimerCount()===0 once the trajectory-buffer pending path
-    // replaced the old direct-pending model — a stale test fixture, not a
-    // product bug (see P2_T23_H2 report §21).
-    advanceTime(1)
     fireWatchSuccess(watchId, -34.59, -58.4, 5) // significant movement while in-flight
     expect(fetchMock).toHaveBeenCalledTimes(1) // no second concurrent POST
 
@@ -953,43 +928,6 @@ describe("T32-T34 — heartbeat truthfulness", () => {
 
     await rejectNextFreshAcquisitionAsync()
     expect(fetchMock).toHaveBeenCalledTimes(1) // no POST — the stale sample was never sent
-  })
-})
-
-// ============================================
-// H01 — P2-T23-H2: heartbeat anchor alignment (closes the H1 §7 gap — a
-// direct-send heartbeat used to silently leave the trajectory buffer's
-// anchor stuck at the pre-heartbeat position, never at the position the
-// heartbeat itself just confirmed to the server).
-// ============================================
-describe("H01 — P2-T23-H2 heartbeat anchor alignment", () => {
-  test("H01: after a heartbeat send, a new watch callback close to the HEARTBEAT's own position is judged as jitter against it — never as a false large jump against the older pre-heartbeat anchor", async () => {
-    controller = createController()
-    controller.render([delivery("p1")])
-    const watchId = lastWatchId()
-    await sendInitialAndResolve("p1", watchId, -34.6, -58.4, 5) // establishes lastSentSample + buffer.anchor at (-34.6, -58.4)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-
-    advanceTime(60000) // heartbeat due, latestObservedSample stale -> fresh one-shot required
-    expect(getCurrentPositionMock).toHaveBeenCalledTimes(1)
-    // Heartbeat's fresh acquisition resolves ~22m from the original anchor —
-    // a real, confirmed new position (not itself "significant movement" from
-    // the caller's perspective — heartbeat bypasses the movement filter by
-    // design, same as before this task).
-    await resolveNextFreshAcquisitionAsync(-34.5998, -58.4, 5)
-    expect(fetchMock).toHaveBeenCalledTimes(2) // heartbeat sent it directly
-
-    advanceTime(6000) // clear MIN_SEND_INTERVAL_MS
-    // ~2.2m from the heartbeat's OWN position (jitter, threshold ≈5m at this
-    // accuracy) — but ~24.5m from the ORIGINAL pre-heartbeat anchor, which
-    // would read as a false large jump if the anchor had never been realigned.
-    fireWatchSuccess(watchId, -34.59978, -58.4, 5)
-    await act(async () => {
-      await Promise.resolve()
-    })
-    // No 3rd POST — the anchor correctly tracks the heartbeat's confirmed
-    // position, so this callback is correctly suppressed as non-movement.
-    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -1327,7 +1265,7 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
     expect(controller.getApi().trackingActive).toBe(true)
   })
 
-  test("T48: a transient/5xx POST failure retains bounded state and does not stop the eligible watcher", async () => {
+  test("T48: a POST failure for the sole eligible delivery stops the watcher (all-known-ineligible -> zero remaining GPS demand)", async () => {
     controller = createController()
     controller.render([delivery("p1")])
     const watchId = lastWatchId()
@@ -1337,16 +1275,11 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
     })
     await resolveNextFetch(500)
 
-    expect(clearWatchMock).toHaveBeenCalledTimes(0)
-    expect(activeWatchCount()).toBe(1)
-    advanceTime(10000)
-    expect(fetchMock).toHaveBeenCalledTimes(1) // no timer-only retry
-    fireWatchSuccess(watchId, -34.59, -58.4, 5)
-    await act(async () => { await Promise.resolve() })
-    expect(fetchMock).toHaveBeenCalledTimes(2) // next physical sample resumes
+    expect(clearWatchMock).toHaveBeenCalledTimes(1)
+    expect(activeWatchCount()).toBe(0)
   })
 
-  test("T49: a 4xx remains fail-closed and a fresh eligible mios starts a clean delivery", async () => {
+  test("T49: a fresh mios recovering a locally-ineligible delivery genuinely rearms its heartbeat, not just its initial send", async () => {
     controller = createController()
     controller.render([delivery("p1")])
     const watchId = lastWatchId()
@@ -1354,7 +1287,7 @@ describe("T46-T55 — postInFlight semantics, watcher demand reconciliation, gen
     await act(async () => {
       await Promise.resolve()
     })
-    await resolveNextFetch(400) // auth/contract rejection -> watcher stops, state fully cleaned up
+    await resolveNextFetch(500) // fails -> watcher stops, state fully cleaned up
     getCurrentPositionMock.mockClear() // the mount's own leftover one-shot is irrelevant here
 
     advanceTime(6000)

@@ -68,15 +68,12 @@ describe("DeliveryTrackingMap stale-location wiring contract (P2-T02-B3)", () =>
     expect(source).toContain("Ubicación temporalmente pausada")
   })
 
-  test("stale state cancels playback and gates marker movement until fresh data returns", () => {
+  test("marker position rendering never references isStale — staleness is a display concern only, position/movement logic is untouched", () => {
     const markerEffectStart = source.indexOf("// Update repartidor marker when tracking data changes")
     const markerEffectEnd = source.indexOf("// Prevent body scroll when open")
     expect(markerEffectStart).toBeGreaterThan(-1)
     expect(markerEffectEnd).toBeGreaterThan(markerEffectStart)
     const markerEffect = source.slice(markerEffectStart, markerEffectEnd)
-    expect(markerEffect).toContain("isStale")
-    expect(markerEffect).toContain("cancelPlayback(true)")
-    expect(markerEffect).toContain("startPlayback")
-    expect(markerEffect).toContain("trackingData.estado !== \"en_camino\"")
+    expect(markerEffect).not.toContain("isStale")
   })
 })

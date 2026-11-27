@@ -32,10 +32,9 @@ describe("Repartidor tracking producer contract (server-authoritative, MODEL-E1/
     expect(source).not.toContain("setInterval(tick") // MODEL-G1 polling model, retired
   })
 
-  test("useRepartidorTracking separates trajectory acceptance from network throttle and keeps heartbeat", () => {
+  test("useRepartidorTracking preserves movement filtering, send throttle, and stationary heartbeat", () => {
     const source = repartidorTracking()
-    expect(source).toContain("acceptTrackingTrajectoryPoint")
-    expect(source).toContain("shouldFlushTrackingTrajectory")
+    expect(source).toContain("isSignificantMovement")
     expect(source).toContain("MIN_SEND_INTERVAL_MS")
     expect(source).toContain("STATIONARY_HEARTBEAT_MS")
   })

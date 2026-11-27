@@ -1,11 +1,4 @@
 import { createHmac, randomUUID } from "crypto"
-import type { RealtimeTrackingTrajectoryPoint } from "@/lib/tracking-trajectory"
-import {
-  isValidRealtimeMatchedTrajectory,
-  MAX_MATCHED_REALTIME_PAYLOAD_BYTES,
-  serializedRealtimeEventBytes,
-  type RealtimeMatchedTrajectoryPoint,
-} from "@/lib/realtime-types"
 
 export const INTERNAL_PUBLISH_PATH = "/internal/realtime/publish"
 export const INTERNAL_PUBLISH_TIMEOUT_MS = 400
@@ -39,8 +32,6 @@ type TrackingLocationUpdatedPayload = {
   lng: number
   timestamp: string
   version?: number | string
-  trajectory?: RealtimeTrackingTrajectoryPoint[]
-  matchedTrajectory?: RealtimeMatchedTrajectoryPoint[]
 }
 
 export type RealtimePublishEvent =
@@ -76,7 +67,6 @@ export type RealtimePublishResult =
   | { status: "success"; eventId: string; attempts: number; httpStatus: number }
   | { status: "deduplicated"; eventId: string; attempts: number; httpStatus: number }
   | { status: "disabled"; reason: "configuration_incomplete" | "configuration_invalid" }
-  | { status: "invalid"; eventId: string; reason: "matched_trajectory_invalid" | "matched_payload_too_large" }
   | { status: "failed"; eventId: string; attempts: number; httpStatus?: number }
 
 type PublishOptions = {
@@ -169,14 +159,6 @@ export async function publishRealtimeEvent(
   event: RealtimePublishEvent,
   options: PublishOptions = {}
 ): Promise<RealtimePublishResult> {
-  if (event.type === "tracking.location.updated" && event.payload.matchedTrajectory !== undefined) {
-    if (!isValidRealtimeMatchedTrajectory(event.payload.matchedTrajectory)) {
-      return { status: "invalid", eventId: event.eventId, reason: "matched_trajectory_invalid" }
-    }
-    if (serializedRealtimeEventBytes(event) > MAX_MATCHED_REALTIME_PAYLOAD_BYTES) {
-      return { status: "invalid", eventId: event.eventId, reason: "matched_payload_too_large" }
-    }
-  }
   const configuration = readConfiguration()
   if (configuration.status !== "ready") return configuration
 

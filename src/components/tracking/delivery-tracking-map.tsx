@@ -13,17 +13,6 @@ import {
   isTrackingLocationStale,
   isTrustedTrackingServerVersion,
 } from "@/lib/tracking-freshness"
-import {
-  createTrackingPlaybackController,
-  isValidTrackingVisualTrajectory,
-  selectTrackingVisualTrajectory,
-  type TrackingPlaybackEventSource,
-  type TrackingPlaybackPoint,
-  type TrackingVisualTrajectoryPoint,
-} from "@/lib/tracking-playback"
-import type { RealtimeMatchedTrajectoryPoint } from "@/lib/realtime-types"
-import type { RealtimeTrackingTrajectoryPoint } from "@/lib/tracking-trajectory"
-import { recordT24PhysicalWitness } from "@/lib/t24-physical-witness"
 import "leaflet/dist/leaflet.css"
 import { X, Bike, MapPin, Loader2, AlertCircle, Wifi, WifiOff } from "lucide-react"
 
@@ -69,10 +58,6 @@ interface TrackingData {
   negocioLogoUrl: string | null
   negocioColorPrincipal: string | null
   estado: string
-  version?: number | string
-  trajectory?: RealtimeTrackingTrajectoryPoint[]
-  matchedTrajectory?: RealtimeMatchedTrajectoryPoint[]
-  trackingSource?: TrackingPlaybackEventSource
 }
 
 // ============================================
@@ -82,29 +67,6 @@ const DEFAULT_CENTER: [number, number] = [-26.1856, -58.1732]
 const DEFAULT_ZOOM = 15
 const POLL_INTERVAL = 8_000 // 8 seconds (fallback when no Socket.IO)
 const SOCKET_POLL_HEARTBEAT = 20_000 // 20 seconds heartbeat even with Socket.IO
-
-type T24VisualSource = "MATCHED" | "RAW" | "LOCATION_ONLY"
-
-function identifyT24VisualSource(
-  matchedTrajectory: unknown,
-  rawTrajectory: unknown,
-  selectedTrajectory: TrackingVisualTrajectoryPoint[],
-): T24VisualSource {
-  if (selectedTrajectory.length === 0) return "LOCATION_ONLY"
-
-  const sameGeometry = (candidate: unknown): boolean => {
-    if (!isValidTrackingVisualTrajectory(candidate)) return false
-    if (candidate.length !== selectedTrajectory.length) return false
-    return candidate.every((point, index) => {
-      const selected = selectedTrajectory[index]
-      return point.lat === selected.lat && point.lng === selected.lng && point.offsetMs === selected.offsetMs
-    })
-  }
-
-  if (sameGeometry(matchedTrajectory)) return "MATCHED"
-  if (sameGeometry(rawTrajectory)) return "RAW"
-  return "RAW"
-}
 
 // ============================================
 // Custom marker icons
@@ -262,12 +224,6 @@ export function DeliveryTrackingMap({
   const repartidorMarkerRef = useRef<L.Marker | null>(null)
   const destinoMarkerRef = useRef<L.Marker | null>(null)
   const origenMarkerRef = useRef<L.Marker | null>(null)
-  const playbackControllerRef = useRef<ReturnType<typeof createTrackingPlaybackController> | null>(null)
-  if (!playbackControllerRef.current) {
-    playbackControllerRef.current = createTrackingPlaybackController({
-      marker: () => repartidorMarkerRef.current,
-    })
-  }
   const userInteractedRef = useRef(false)
   // Clock-independent freshness/causality tracker — see src/lib/tracking-freshness.ts.
   // Guards against slow-HTTP-overwrites-newer-realtime, HTTP-vs-HTTP
@@ -298,24 +254,6 @@ export function DeliveryTrackingMap({
   // connected — never a standalone raw-socket "connected" event, since the
   // transport is owned by RealtimeManager, not this component.
   const isLiveSocket = isTrackingRoomJoined && snapshot.state === "connected"
-  const previousRealtimeStateRef = useRef<string | null>(null)
-
-  useEffect(() => {
-    if (!open || previousRealtimeStateRef.current === snapshot.state) return
-    previousRealtimeStateRef.current = snapshot.state
-    recordT24PhysicalWitness({
-      pedidoId,
-      event: "client_realtime_connection_state",
-      state: snapshot.state,
-      lifecycleType: snapshot.state === "connected"
-        ? "connection_established"
-        : snapshot.state === "reconnecting"
-          ? "reconnect_attempt"
-          : snapshot.state === "error" || snapshot.state === "offline" || snapshot.state === "stopped"
-            ? "disconnected"
-            : "connection_state_changed",
-    })
-  }, [open, pedidoId, snapshot.state])
 
   // Validate coordinates
   const validDestinoLat = typeof destinoLat === 'number' && isFinite(destinoLat) ? destinoLat : DEFAULT_CENTER[0]
@@ -348,63 +286,14 @@ export function DeliveryTrackingMap({
     }
   }, [])
 
-  const cancelPlayback = useCallback((forStale = false) => {
-    if (forStale) playbackControllerRef.current?.cancelForStale()
-    else playbackControllerRef.current?.reset()
-    recordT24PhysicalWitness({
-      pedidoId,
-      event: forStale ? "client_stale_recovery" : "client_playback_cancel",
-      staleRecovery: forStale,
-    })
-  }, [pedidoId])
-
-  const startPlayback = useCallback((
-    target: TrackingPlaybackPoint,
-    version: number | string | null,
-    trajectory?: TrackingVisualTrajectoryPoint[],
-    source: TrackingPlaybackEventSource = "realtime",
-    visualSource: T24VisualSource = trajectory?.length ? "RAW" : "LOCATION_ONLY",
-  ) => {
-    const acceptance = playbackControllerRef.current?.acceptConfirmedEvent({
-      point: target,
-      version,
-      trajectory,
-      source,
-    })
-    const snapshot = playbackControllerRef.current?.snapshot()
-    recordT24PhysicalWitness({
-      pedidoId,
-      event: "client_playback_acceptance",
-      revision: version,
-      source: visualSource,
-      trajectoryPoints: trajectory?.length ?? 0,
-      acceptance,
-      playbackAccepted: acceptance === "accepted" || acceptance === "recovery_snapped",
-      playbackStarted: acceptance === "accepted" || acceptance === "recovery_snapped",
-      playbackFinished: Boolean(snapshot && !snapshot.rafActive && snapshot.activeBatchVersion === null),
-      playbackSuperseded: acceptance === "discarded_old_version",
-      snapReason: acceptance === "recovery_snapped"
-        ? "STALE_RECOVERY"
-        : snapshot?.needsRecoverySnap
-          ? "STALE_PENDING"
-          : undefined,
-      snapOccurred: acceptance === "recovery_snapped" || snapshot?.needsRecoverySnap === true,
-      queueState: snapshot
-        ? `active=${String(snapshot.activeBatchVersion)};pending=${String(snapshot.pendingBatchVersion)};raf=${snapshot.rafActive ? "1" : "0"}`
-        : undefined,
-    })
-  }, [pedidoId])
-
   // Fetch tracking data (HTTP fallback)
   const fetchTracking = useCallback(async () => {
     if (!open) return
-    recordT24PhysicalWitness({ pedidoId, event: "client_delivery_map_lifecycle", lifecycleType: "initial_http_request", channel: "HTTP" })
     const ticket = beginTrackingHttpRequest(freshnessRef.current)
     setIsLoading(true)
     setError(null)
     try {
       const res = await fetch(`/api/pedidos/${pedidoId}/tracking`)
-      recordT24PhysicalWitness({ pedidoId, event: "client_delivery_map_lifecycle", lifecycleType: "initial_http_response", channel: "HTTP", httpStatus: res.status })
       if (isTrackingHttpResponseSuperseded(ticket, freshnessRef.current)) return
       if (!res.ok) {
         throw new Error("Error al obtener ubicación")
@@ -444,8 +333,6 @@ export function DeliveryTrackingMap({
         negocioLogoUrl: data.negocioLogoUrl || logoUrl || null,
         negocioColorPrincipal: data.negocioColorPrincipal || colorPrincipal || null,
         estado: data.estado || "en_camino",
-        version: data.version,
-        trackingSource: "http",
       }
 
       // The HTTP tracking response always carries the same DB-backed
@@ -473,45 +360,9 @@ export function DeliveryTrackingMap({
             repartidorLat: prev.repartidorLat,
             repartidorLng: prev.repartidorLng,
             repartidorLastUpdate: prev.repartidorLastUpdate,
-            version: prev.version,
-            trajectory: prev.trajectory,
-            matchedTrajectory: prev.matchedTrajectory,
-            trackingSource: prev.trackingSource,
-          }
-        }
-        if (
-          prev &&
-          shouldApplyPosition &&
-          isTrustedTrackingServerVersion(data.version) &&
-          prev.version === data.version &&
-          prev.trajectory
-        ) {
-          return {
-            ...fetchedData,
-            repartidorLat: prev.repartidorLat,
-            repartidorLng: prev.repartidorLng,
-            repartidorLastUpdate: prev.repartidorLastUpdate,
-            version: prev.version,
-            trajectory: prev.trajectory,
-            matchedTrajectory: prev.matchedTrajectory,
-            trackingSource: prev.trackingSource,
           }
         }
         return fetchedData
-      })
-      recordT24PhysicalWitness({
-        pedidoId,
-        event: "client_http_snapshot",
-        revision: data.version,
-        source: "HTTP",
-        trajectoryPoints: Array.isArray(data.trajectory) ? data.trajectory.length : 0,
-        matchedTrajectoryPoints: Array.isArray(data.matchedTrajectory) ? data.matchedTrajectory.length : 0,
-      })
-      recordT24PhysicalWitness({
-        pedidoId,
-        event: "client_revision_observed",
-        revision: data.version,
-        channel: "HTTP",
       })
     } catch {
       if (isTrackingHttpResponseSuperseded(ticket, freshnessRef.current)) return
@@ -546,34 +397,11 @@ export function DeliveryTrackingMap({
       const shouldApplyPosition = trustedVersion === null
         ? canUntrustedTrackingSourceOverridePosition(freshnessRef.current)
         : applyTrackingServerVersion(freshnessRef.current, trustedVersion)
-      recordT24PhysicalWitness({
-        pedidoId,
-        event: shouldApplyPosition ? "client_realtime_applied" : "client_realtime_discarded",
-        revision: data.version,
-        source: Array.isArray(data.matchedTrajectory) && data.matchedTrajectory.length > 0 ? "MATCHED" : "RAW",
-        trajectoryPoints: Array.isArray(data.trajectory) ? data.trajectory.length : 0,
-        matchedTrajectoryPoints: Array.isArray(data.matchedTrajectory) ? data.matchedTrajectory.length : 0,
-      })
-      recordT24PhysicalWitness({
-        pedidoId,
-        event: "client_revision_observed",
-        revision: data.version,
-        channel: "REALTIME",
-      })
       if (!shouldApplyPosition) return
 
       setTrackingData((prev) => {
         if (prev) {
-          return {
-            ...prev,
-            repartidorLat: lat,
-            repartidorLng: lng,
-            repartidorLastUpdate: data.timestamp,
-            version: data.version,
-            trajectory: data.trajectory,
-            matchedTrajectory: data.matchedTrajectory,
-            trackingSource: "realtime",
-          }
+          return { ...prev, repartidorLat: lat, repartidorLng: lng, repartidorLastUpdate: data.timestamp }
         }
         // No prior HTTP snapshot yet (e.g. realtime beat the initial fetch)
         // — build a full record from known props rather than silently
@@ -592,14 +420,9 @@ export function DeliveryTrackingMap({
           negocioLogoUrl: logoUrl || null,
           negocioColorPrincipal: colorPrincipal || null,
           estado: "en_camino",
-          version: data.version,
-          trajectory: data.trajectory,
-          matchedTrajectory: data.matchedTrajectory,
-          trackingSource: "realtime",
         }
       })
     })
-    recordT24PhysicalWitness({ pedidoId, event: "client_delivery_map_lifecycle", lifecycleType: "realtime_subscription_start" })
 
     void client.acquireOrderRoom(pedidoId, ["tracking:watch"], { signal: controller.signal })
       .then((nextLease) => {
@@ -609,7 +432,6 @@ export function DeliveryTrackingMap({
         }
         lease = nextLease
         setIsTrackingRoomJoined(true)
-        recordT24PhysicalWitness({ pedidoId, event: "client_realtime_connection_state", lifecycleType: "subscription_attached", state: "connected" })
       })
       .catch(() => {
         if (!cancelled) setIsTrackingRoomJoined(false)
@@ -620,39 +442,7 @@ export function DeliveryTrackingMap({
       controller.abort()
       unsubscribe()
       lease?.release()
-      recordT24PhysicalWitness({ pedidoId, event: "client_realtime_connection_state", lifecycleType: "subscription_detached", state: "disconnected" })
-      recordT24PhysicalWitness({ pedidoId, event: "client_delivery_map_lifecycle", lifecycleType: "realtime_subscription_cleanup" })
       setIsTrackingRoomJoined(false)
-    }
-  }, [open, pedidoId, client])
-
-  // P2-T23-H2 (H1 §17/H1.5 §22): a reconnect/reauth/room-rejoin already
-  // resubscribes this exact room automatically (rejoinAllRooms in
-  // realtime-manager.ts, unchanged by this task —
-  // REALTIME_ROOM_REJOIN_LOGIC_CHANGED=NO) — but nothing told the Cliente to
-  // actively re-fetch the LATEST state afterward, so any revision published
-  // while disconnected was never backfilled (only the next passive 8s/20s
-  // poll tick would eventually catch it). Socket.IO's own docs are explicit
-  // that a successful reconnect is not sufficient by itself and still
-  // requires explicit state synchronization — this mirrors the exact
-  // pattern chat-view.tsx/chat-sheet.tsx/chat-fab.tsx already use in this
-  // repo. registerResync fires on reconnect, reauth, room-rejoin, focus/
-  // visibility/pageshow, and online — all already wired at the
-  // RealtimeManager/RealtimeProvider level, no new listeners needed here.
-  const fetchTrackingRef = useRef(fetchTracking)
-  fetchTrackingRef.current = fetchTracking
-  useEffect(() => {
-    if (!open) return
-    const unregisterResync = client.registerResync(() => {
-      // P2-T23-H3B: witness-only signal, no behavior change — lets a
-      // physical probe distinguish a resync-triggered fetchTracking call
-      // from the routine 8s/20s poll interval, which emits the identical
-      // client_delivery_map_lifecycle labels otherwise.
-      recordT24PhysicalWitness({ pedidoId, event: "client_resync_triggered", channel: "REALTIME" })
-      fetchTrackingRef.current()
-    })
-    return () => {
-      unregisterResync()
     }
   }, [open, pedidoId, client])
 
@@ -667,7 +457,6 @@ export function DeliveryTrackingMap({
   // genuine pedido switch still starts from the new pedido's own floor.
   useEffect(() => {
     beginTrackingGeneration(freshnessRef.current, pedidoId)
-    playbackControllerRef.current?.reset()
     setTrackingData(null)
     if (open) {
       userInteractedRef.current = false
@@ -770,15 +559,7 @@ export function DeliveryTrackingMap({
       typeof trackingData.repartidorLat === 'number' && isFinite(trackingData.repartidorLat) &&
       typeof trackingData.repartidorLng === 'number' && isFinite(trackingData.repartidorLng)
     ) {
-      const initialTrajectoryPoint = selectTrackingVisualTrajectory(
-        trackingData.matchedTrajectory,
-        trackingData.trajectory,
-      )[0]
-      const initialPoint = initialTrajectoryPoint &&
-        Number.isFinite(initialTrajectoryPoint.lat) && Number.isFinite(initialTrajectoryPoint.lng)
-        ? initialTrajectoryPoint
-        : { lat: trackingData.repartidorLat, lng: trackingData.repartidorLng }
-      const repartidorPos: [number, number] = [initialPoint.lat, initialPoint.lng]
+      const repartidorPos: [number, number] = [trackingData.repartidorLat, trackingData.repartidorLng]
       const repartidorColor = trackingData.negocioColorPrincipal || colorPrincipal
       const repartidorIcon = createRepartidorIcon(repartidorColor)
       const repartidorMarker = L.marker(repartidorPos, { icon: repartidorIcon, zIndexOffset: 1000 })
@@ -787,12 +568,8 @@ export function DeliveryTrackingMap({
           `<div style="font-size: 13px; font-weight: 600; padding: 2px 4px;">
             🛵 Tu repartidor
           </div>`
-      )
+        )
       repartidorMarkerRef.current = repartidorMarker
-      playbackControllerRef.current?.seedRenderedPoint(
-        { lat: repartidorPos[0], lng: repartidorPos[1] },
-        initialTrajectoryPoint ? null : (trackingData.version ?? null),
-      )
     }
 
     // Fit bounds to show all markers
@@ -819,20 +596,16 @@ export function DeliveryTrackingMap({
     mapInstanceRef.current = map
     destinoMarkerRef.current = destinoMarker
     setIsMapReady(true)
-    recordT24PhysicalWitness({ pedidoId, event: "client_delivery_map_lifecycle", lifecycleType: "map_mount" })
 
     return () => {
-      cancelPlayback(true)
       map.remove()
       mapInstanceRef.current = null
       repartidorMarkerRef.current = null
       destinoMarkerRef.current = null
       origenMarkerRef.current = null
-      playbackControllerRef.current?.reset()
       setIsMapReady(false)
-      recordT24PhysicalWitness({ pedidoId, event: "client_delivery_map_lifecycle", lifecycleType: "map_unmount" })
     }
-  }, [open, cancelPlayback, pedidoId]) // Only depend on open/pedido witness identity
+  }, [open]) // Only depend on open
 
   // Update origin marker when tracking data arrives
   useEffect(() => {
@@ -877,54 +650,23 @@ export function DeliveryTrackingMap({
   useEffect(() => {
     if (!trackingData || !mapInstanceRef.current) return
 
-    if (isTrackingDisabled || trackingData.estado !== "en_camino") {
-      playbackControllerRef.current?.cancelForCompletion()
-      return
-    }
-
-    // `isStale` is updated by the sibling freshness effect after the data
-    // state changes. Re-evaluate the timestamp here so a first realtime batch
-    // is not incorrectly treated as stale during that one render.
-    const actuallyStale = isTrackingLocationStale(trackingData.repartidorLastUpdate, Date.now())
-    if (isStale && actuallyStale) {
-      cancelPlayback(true)
-      return
-    }
-
     const lat = trackingData.repartidorLat
     const lng = trackingData.repartidorLng
     if (typeof lat !== 'number' || !isFinite(lat) || typeof lng !== 'number' || !isFinite(lng)) return
 
-    const newPoint: TrackingPlaybackPoint = { lat, lng }
+    const newPos: [number, number] = [lat, lng]
     const repartidorColor = trackingData.negocioColorPrincipal || colorPrincipal
-    const visualTrajectory = selectTrackingVisualTrajectory(
-      trackingData.matchedTrajectory,
-      trackingData.trajectory,
-      playbackControllerRef.current?.snapshot().renderedPoint,
-    )
-    const visualSource = identifyT24VisualSource(
-      trackingData.matchedTrajectory,
-      trackingData.trajectory,
-      visualTrajectory,
-    )
 
     if (repartidorMarkerRef.current) {
-      startPlayback(
-        newPoint,
-        trackingData.version ?? null,
-        visualTrajectory,
-        trackingData.trackingSource,
-        visualSource,
-      )
+      const currentPos = repartidorMarkerRef.current.getLatLng()
+      if (currentPos.lat !== newPos[0] || currentPos.lng !== newPos[1]) {
+        repartidorMarkerRef.current.setLatLng(newPos)
+      }
       // Update icon color in case it changed
       repartidorMarkerRef.current.setIcon(createRepartidorIcon(repartidorColor))
     } else {
       const repartidorIcon = createRepartidorIcon(repartidorColor)
-      const firstPoint = visualTrajectory[0]
-      const initialPoint = firstPoint && Number.isFinite(firstPoint.lat) && Number.isFinite(firstPoint.lng)
-        ? { lat: firstPoint.lat, lng: firstPoint.lng }
-        : newPoint
-      const repartidorMarker = L.marker([initialPoint.lat, initialPoint.lng], { icon: repartidorIcon, zIndexOffset: 1000 })
+      const repartidorMarker = L.marker(newPos, { icon: repartidorIcon, zIndexOffset: 1000 })
         .addTo(mapInstanceRef.current)
         .bindPopup(
           `<div style="font-size: 13px; font-weight: 600; padding: 2px 4px;">
@@ -932,21 +674,10 @@ export function DeliveryTrackingMap({
           </div>`
         )
       repartidorMarkerRef.current = repartidorMarker
-      playbackControllerRef.current?.seedRenderedPoint(
-        initialPoint,
-        visualTrajectory.length ? null : (trackingData.version ?? null),
-      )
-      startPlayback(
-        newPoint,
-        trackingData.version ?? null,
-        visualTrajectory,
-        trackingData.trackingSource,
-        visualSource,
-      )
     }
 
     fitBoundsToMarkers()
-  }, [trackingData, colorPrincipal, fitBoundsToMarkers, isStale, isTrackingDisabled, cancelPlayback, startPlayback])
+  }, [trackingData, validDestinoLat, validDestinoLng, colorPrincipal, fitBoundsToMarkers])
 
   // Prevent body scroll when open
   useEffect(() => {

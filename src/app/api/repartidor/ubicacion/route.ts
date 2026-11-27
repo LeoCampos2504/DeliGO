@@ -4,82 +4,16 @@ import { db } from "@/lib/db"
 import { getUserFromToken, SESSION_COOKIE_NAME } from "@/lib/auth"
 import { safeErrorForLog } from "@/lib/log-safe-error"
 import { checkRateLimit, rateLimitResponse } from "@/lib/rate-limit"
-import { evaluateMapMatchingWithDiagnostics, isRawMatchingCandidate } from "@/lib/map-matching-policy"
-import { createOsrmMapMatchingProvider } from "@/lib/osrm-map-matching-provider"
-import { isMatchedRealtimePayloadWithinLimit } from "@/lib/map-matching-provider"
 import { publishRealtimeEvent } from "@/lib/realtime-publish"
-import {
-  MAX_BATCH_PAYLOAD_BYTES,
-  validateTrackingTrajectoryPayload,
-  type TrackingTrajectoryWirePoint,
-} from "@/lib/tracking-trajectory"
 
 interface UpdateUbicacionBody {
   pedidoId: string
   lat: number
   lng: number
-  trajectory?: TrackingTrajectoryWirePoint[]
-}
-
-const R3_MATCHING_TIMEOUT_TESTING_MS = 1_000
-
-function isPhysicalWitnessOrder(pedidoId: string): boolean {
-  return process.env.DELIGO_ENVIRONMENT === "TESTING" && pedidoId === process.env.T24_PHYSICAL_WITNESS_ORDER_ID
-}
-
-function physicalWitness(pedidoId: string, event: string, fields: Record<string, unknown> = {}): void {
-  if (!isPhysicalWitnessOrder(pedidoId)) return
-  console.info("[T24 Physical Witness]", JSON.stringify({ event, pedidoId, ...fields }))
-}
-
-function readPhysicalWitnessTransport(req: NextRequest, pedidoId: string): Record<string, unknown> {
-  if (!isPhysicalWitnessOrder(pedidoId)) return {}
-  const raw = req.headers.get("x-t24-physical-witness")
-  if (!raw || raw.length > 2_000) return {}
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    if (!parsed || Array.isArray(parsed)) return {}
-    const allowed = ["batchId", "batchPointCount", "callbackSequenceStart", "callbackSequenceEnd"]
-    const entries: Array<[string, string | number]> = []
-    for (const key of allowed) {
-      const value = parsed[key]
-      if (typeof value === "string" && value.length <= 160) entries.push([key, value])
-      if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) entries.push([key, value])
-    }
-    return Object.fromEntries(entries)
-  } catch {
-    return {}
-  }
-}
-
-function isTestingRuntime(): boolean {
-  // Read the deployment marker at runtime. Next's standalone launcher sets
-  // NODE_ENV to production for every optimized build, including Testing.
-  const runtimeEnv = globalThis.process?.env as Record<string, string | undefined> | undefined
-  const environmentKey = ["DELIGO", "ENVIRONMENT"].join("_")
-  return runtimeEnv?.[environmentKey] === "TESTING"
-}
-
-function createTestingMapMatchingProvider() {
-  if (!isTestingRuntime()) return null
-  return createOsrmMapMatchingProvider({
-    env: {
-      ...process.env,
-      MAP_MATCHING_BASE_URL: process.env.T24_OSRM_BASE_URL ?? process.env.MAP_MATCHING_BASE_URL,
-    },
-    timeoutMs: R3_MATCHING_TIMEOUT_TESTING_MS,
-  })
-}
-
-function realtimeTrajectoryWithoutAccuracy(
-  trajectory: TrackingTrajectoryWirePoint[] | undefined,
-) {
-  return trajectory?.map(({ lat, lng, offsetMs }) => ({ lat, lng, offsetMs }))
 }
 
 // POST /api/repartidor/ubicacion - Update repartidor live GPS location for an active delivery
 export async function POST(req: NextRequest) {
-  const requestStartedAt = Date.now()
   try {
     // 1. Authenticate repartidor from cookie
     const token = req.cookies.get(SESSION_COOKIE_NAME)?.value
@@ -105,11 +39,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Validate required fields
-    const parsedBody: unknown = await req.json()
-    if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
-      return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 })
-    }
-    const body = parsedBody as UpdateUbicacionBody
+    const body: UpdateUbicacionBody = await req.json()
     const { pedidoId, lat, lng } = body
 
     if (!pedidoId || typeof pedidoId !== "string") {
@@ -119,7 +49,7 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    if (typeof lat !== "number" || typeof lng !== "number") {
       return NextResponse.json(
         { error: "lat y lng deben ser números válidos" },
         { status: 400 }
@@ -131,19 +61,6 @@ export async function POST(req: NextRequest) {
         { error: "Coordenadas fuera de rango válido" },
         { status: 400 }
       )
-    }
-
-    let trajectory: TrackingTrajectoryWirePoint[] | undefined
-    if (body.trajectory !== undefined) {
-      const serializedBody = JSON.stringify(body)
-      if (Buffer.byteLength(serializedBody, "utf8") > MAX_BATCH_PAYLOAD_BYTES) {
-        return NextResponse.json({ error: "La trayectoria excede el límite permitido" }, { status: 413 })
-      }
-      const validation = validateTrackingTrajectoryPayload(body.trajectory, lat, lng)
-      if (!validation.ok) {
-        return NextResponse.json({ error: "Trayectoria inválida" }, { status: 400 })
-      }
-      trajectory = validation.points
     }
 
     // 3. Find the pedido and validate. `negocio.seguimientoDeliveryActivo`
@@ -306,16 +223,6 @@ export async function POST(req: NextRequest) {
     }
 
     const locationRevision = rows[0].locationRevision
-    physicalWitness(pedidoId, "raw_commit", {
-      receivedAt: new Date(requestStartedAt).toISOString(),
-      committedAt: new Date().toISOString(),
-      revision: locationRevision,
-      rawPointCount: trajectory?.length ?? 0,
-      rawLat: lat,
-      rawLng: lng,
-      accuracyPresent: Boolean(trajectory?.every((point) => typeof point.accuracy === "number")),
-      ...readPhysicalWitnessTransport(req, pedidoId),
-    })
 
     // 6. Server-authoritative realtime broadcast. DB persistence above is
     // already the source of truth, so a failed/disabled/timed-out publish
@@ -354,125 +261,19 @@ export async function POST(req: NextRequest) {
     // coordinates. The envelope's own `version: 1` field (below) is the
     // unrelated Internal Publish schema/envelope version and is untouched.
     const timestamp = now.toISOString()
-    const basePayload = {
-      pedidoId,
-      lat,
-      lng,
-      timestamp,
-      version: locationRevision,
-      ...(trajectory ? { trajectory: realtimeTrajectoryWithoutAccuracy(trajectory) } : {}),
-    }
-    let matchedTrajectory: Array<{ lat: number; lng: number; offsetMs: number }> | undefined
-    let providerAttempted = false
-    let providerResultStatus = "NOT_ATTEMPTED"
-    let providerLatencyMs: number | null = null
-    let providerConfidence: number | null = null
-    let policyDecision = "NOT_EVALUATED"
-    let policyRejectionReason: string | null = null
-
-    // Matching is strictly best-effort and follows the RAW DB commit. The
-    // provider/policy can therefore never suppress the one RAW realtime event.
-    const eventId = `${pedidoId}:${randomUUID()}`
-    if (trajectory && isRawMatchingCandidate(trajectory)) {
-      try {
-        const provider = createTestingMapMatchingProvider()
-        if (provider) {
-          providerAttempted = true
-          const providerStartedAt = Date.now()
-          console.info("[Tracking Matching] category=attempt pointCount=" + trajectory.length)
-          const result = await provider.matchTrajectory(trajectory, {
-            profile: "driving",
-            timeoutMs: R3_MATCHING_TIMEOUT_TESTING_MS,
-            signal: req.signal,
-          })
-          providerLatencyMs = Date.now() - providerStartedAt
-          providerResultStatus = result.status
-          providerConfidence = result.status === "matched" ? (result.matchings[0]?.confidence ?? null) : null
-          const evaluation = evaluateMapMatchingWithDiagnostics(trajectory, result)
-          const decision = evaluation.decision
-          policyDecision = decision.decision
-          policyRejectionReason = decision.decision === "REJECT_MATCH" ? decision.reason : null
-          physicalWitness(pedidoId, "provider_result", {
-            revision: locationRevision,
-            providerAttempted,
-            providerLatencyMs,
-            providerResultStatus,
-            providerConfidence,
-            policyDecision,
-            policyRejectionReason,
-            rawPointCount: trajectory.length,
-            matchedTrajectoryPointCount: decision.decision === "ACCEPT_MATCH" ? decision.matchedTrajectory.length : 0,
-            ...readPhysicalWitnessTransport(req, pedidoId),
-          })
-          if (decision.decision === "ACCEPT_MATCH") {
-            const candidate = decision.matchedTrajectory.map(({ lat: matchedLat, lng: matchedLng, offsetMs }) => ({
-              lat: matchedLat,
-              lng: matchedLng,
-              offsetMs,
-            }))
-            const candidateEvent = {
-              version: 1 as const,
-              type: "tracking.location.updated" as const,
-              eventId,
-              resourceId: pedidoId,
-              occurredAt: timestamp,
-              payload: { ...basePayload, matchedTrajectory: candidate },
-            }
-            if (isMatchedRealtimePayloadWithinLimit(candidateEvent)) {
-              matchedTrajectory = candidate
-              console.info("[Tracking Matching] category=accepted pointCount=" + candidate.length)
-            } else {
-              policyDecision = "REJECT_MATCH"
-              policyRejectionReason = "matched_payload_too_large"
-              console.warn("[Tracking Matching] category=fallback_raw reason=matched_payload_too_large")
-            }
-          } else {
-            console.info("[Tracking Matching] category=fallback_raw reason=policy_rejected")
-          }
-        }
-      } catch {
-        providerResultStatus = "error"
-        policyDecision = "REJECT_MATCH"
-        policyRejectionReason = "provider_exception"
-        console.warn("[Tracking Matching] category=fallback_raw reason=provider_exception")
-      }
-    }
-
     await publishRealtimeEvent({
       version: 1,
       type: "tracking.location.updated",
-      eventId,
+      eventId: `${pedidoId}:${randomUUID()}`,
       resourceId: pedidoId,
       occurredAt: timestamp,
       payload: {
-        ...basePayload,
-        ...(matchedTrajectory ? { matchedTrajectory } : {}),
+        pedidoId,
+        lat,
+        lng,
+        timestamp,
+        version: locationRevision,
       },
-    })
-
-    physicalWitness(pedidoId, "realtime_publish", {
-      publishedAt: new Date().toISOString(),
-      revision: locationRevision,
-      realtimeEventCount: 1,
-      providerAttempted,
-      providerLatencyMs,
-      providerResultStatus,
-      providerConfidence,
-      policyDecision,
-      policyRejectionReason,
-      rawTrajectoryEmitted: Boolean(trajectory),
-      matchedTrajectoryEmitted: Boolean(matchedTrajectory),
-      matchedTrajectoryPointCount: matchedTrajectory?.length ?? 0,
-      serverProcessingMs: Date.now() - requestStartedAt,
-      ...readPhysicalWitnessTransport(req, pedidoId),
-    })
-
-    physicalWitness(pedidoId, "tracking_post_completed", {
-      responseTimestamp: new Date().toISOString(),
-      httpStatus: 200,
-      locationRevision,
-      pointCount: trajectory?.length ?? 0,
-      ...readPhysicalWitnessTransport(req, pedidoId),
     })
 
     // 7. Return success
@@ -482,9 +283,6 @@ export async function POST(req: NextRequest) {
       repartidorLng: lng,
       repartidorLastUpdate: timestamp,
       locationRevision,
-      version: locationRevision,
-      timestamp,
-      ...(trajectory ? { acceptedTrajectoryPointsCount: trajectory.length } : {}),
     })
   } catch (error) {
     console.error("Error updating repartidor ubicacion:", safeErrorForLog(error))
