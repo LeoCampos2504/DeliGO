@@ -20,7 +20,9 @@ async function esperarRevocacionBloqueada() {
         SELECT 1 FROM pg_stat_activity
         WHERE datname = current_database()
           AND wait_event_type = 'Lock'
-          AND query ILIKE '%UPDATE "empleados"%'
+          -- Prisma can schema-qualify the table: UPDATE "public"."empleados".
+          AND query ILIKE '%UPDATE%'
+          AND query ILIKE '%empleados%'
       ) AS bloqueada`
     if (filas[0]?.bloqueada) return true
     await new Promise((resolve) => setTimeout(resolve, 20))
