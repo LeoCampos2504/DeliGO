@@ -18,9 +18,9 @@ Panel del dueño (negocios genéricos): **Caja** queda con Vender · Cajas y tur
 **Administración**, junto a Caja, con Compras · Etiquetas · Proveedores · Resumen. Se conservan las demás secciones.
 Sólo reorganización de componentes existentes: sin cambios de lógica financiera, permisos, APIs ni base; mismos filtros,
 formularios y comportamiento; compatibilidad de navegación y enlaces; estilo claro/oscuro; prioridad móvil sin mover el
-desplazamiento horizontal al menú principal. **Implementada localmente en T4 (2026-11-27), sin commit**, pendiente de
-revisión de ChatGPT, commit separado y del despliegue conjunto con F10-D1 a TESTING. No confundir con la paridad de
-enlaces/QR de mesa (después de Production y T7).
+desplazamiento horizontal al menú principal. **CERRADA Y CERTIFICADA EN TESTING en T4 (2026-11-27)** junto con F10-D1
+(14/14; `1a3c33f5`, DeliGO Copy `83c3f9d1`, migración 70). No confundir con la paridad de enlaces/QR de mesa (después de
+Production y T7).
 
 ### FUTURO (DF-1, operador 2026-11-27) — complemento informativo de egreso registrado de MENOS
 

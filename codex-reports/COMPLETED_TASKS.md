@@ -1,5 +1,18 @@
 # COMPLETED TASKS — DeliGO (índice compacto)
 
+## T4 — F10-D1 + Caja/Administración — CLOSED_TESTING_CERTIFIED (formal close, 2026-11-27)
+
+```text
+T4_STATUS=CLOSED_TESTING_CERTIFIED (F10-D1 conciliation/recovery of post-close cash outflows + Caja/Administración navigation; not a Production authorization)
+TESTS=14/14 operator PASS (A1–A6 conciliations, R1–R4 recoveries, N1–N4 navigation; N3 re-run via Administración → Resumen → venta reciente → Gestionar venta → agregar producto → Ir a Vender) · cumulative T1–T4 50/50
+CI=branch 45947494692 (job 140335441233) SUCCESS 86/86, 991 tests passed, 0 failed, 0 skipped, on 1a3c33f5 · testing-codex 45948321671 SUCCESS
+DEPLOY=testing-codex d72f8bdf..1a3c33f5 · DeliGO Copy 83c3f9d1 SUCCESS · migration 70 20261127120000_f10_d1_conciliacion_recupero_egresos applied (05:53:20 UTC) · backup deligo-testing-pre-t1-t3-20261127T054927Z.dump SHA-256 2aea210f5276dd578e504f676591056187cf2ce09bf3d8f01551504dbcbf851c (69 migrations before)
+INTERNAL=verificacion-t4-20261127T064018Z.json (read-only): the six QA-D1 outflows match registered/conciliated/recovered/net exactly; Caja A fondo 3000, outflows 1900, compensation 100, expected 1200 (= ledger), counted 2000, difference +800, 4 conciliations 800, unexplained 0, no money movement, close untouched; Caja B fondo 1000, 2 RECUPERO_EGRESO (150, 100) one positive leg each, expected = counted 1250; existing supplier, PAGO_CAJA 500 + ERROR_DE_CARGA 200 + DIFERENCIA_ACORDADA 100 → debt −200 in the window, account identity holds, no duplicate adjustment; 0 orphan recoveries; audits one per correction; old shift fingerprint unchanged
+HTTP=05:53–06:40 UTC DeliGO Copy 1094 requests, 0 5xx, 14 expected 401s · Mesa Occupancy Cron 06:00/06:16/06:31 errors 0
+FLAKY_FIXED=P2-T48 random table numbers (4800+random(1000) for 9 tables of one business, ~1/28 runs) → deterministic per-business sequence (test only)
+DEFERRED=DF-1 informational «complemento de egreso» (roadmap) · table link/QR parity (first after Production + T7) · mesa-cuenta 400 polling · 403-persistent re-query (T5 review) · local catalog-tutorial contract failure (pre-existing, not in CI, pending classification)
+```
+
 ## T1–T3 — CLOSED_TESTING_CERTIFIED (formal close, 2026-11-27)
 
 ```text

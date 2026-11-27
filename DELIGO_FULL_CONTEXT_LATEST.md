@@ -1,4 +1,11 @@
-## LATEST UPDATE — T4 EN COMMITS SEPARADOS (8c313cc4 F10-D1 · db37ecd7 navegación · docs) · CI · DESPLIEGUE NO AUTORIZADO (2026-11-27)
+## LATEST UPDATE — T4 CERRADA Y CERTIFICADA EN TESTING · T5 EN ANÁLISIS (2026-11-27)
+
+- **T4 (F10-D1 + Caja/Administración): CLOSED_TESTING_CERTIFIED** — operador 14/14 (acumulado T1–T4 50/50), CI
+  45947494692 86/86 con 991 pruebas, `testing-codex` = `1a3c33f5` (DeliGO Copy `83c3f9d1`, migración 70 aplicada),
+  verificación interna de solo lectura sin discrepancias, HTTP sin 5xx. Production intacto (`main` `42ca5005`).
+- Siguiente: T5, estrategia de consolidación de la candidata a Production (análisis; sin integrar ramas).
+
+## PRECEDING UPDATE — T4 EN COMMITS SEPARADOS (8c313cc4 F10-D1 · db37ecd7 navegación · docs) · CI · DESPLIEGUE NO AUTORIZADO (2026-11-27)
 
 - Revisión de ChatGPT aprobada; commits, push a `codex/estabilizacion-final` y CI autorizados. Ningún servicio de Railway
   sigue esa rama. Despliegue a TESTING pendiente de autorización (respaldo previo sobre TESTING con 69 migraciones; la 70

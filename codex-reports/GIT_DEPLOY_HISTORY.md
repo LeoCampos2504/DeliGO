@@ -1,5 +1,17 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## T4 (F10-D1 + Caja/Administración) — Railway TESTING deploy (2026-11-27, Claude Code)
+
+```text
+AUTHORIZATION=operator: push 1a3c33f5:refs/heads/testing-codex after backup (fast-forward, no force, no new commits)
+COMMITS=8c313cc4 feat(f10-d1) · db37ecd7 feat(nav) · 53695837 docs(t4) · 4cad4f15 test(f10-d1) contracts · 1a3c33f5 test(t4) P2-T48 + SQL concurrency
+CI=branch run 45947494692 (job 140335441233) SUCCESS 86/86 on 1a3c33f5 (earlier 45946136835 / 45946595327 failed: two exact contracts, then P2-T48 flaky fixture — both fixed)
+BACKUP=deligo-testing-pre-t1-t3-20261127T054927Z.dump 1531774 bytes SHA-256 2aea210f5276dd578e504f676591056187cf2ce09bf3d8f01551504dbcbf851c (PASS, 69 migrations; re-verified by the session)
+PUSH=d72f8bdf..1a3c33f5 testing-codex (05:51:59 UTC)
+RAILWAY_TESTING=DeliGO Copy 83c3f9d1-cd0a-459a-a747-62579cdd6f01 SUCCESS commitHash 1a3c33f5 exact · pre-deploy applied ONLY 20261127120000_f10_d1_conciliacion_recupero_egresos (70 migrations) · Mesa Cron 9b61b81c · Review Expiry 7561868e · chat 4792ce61 all SUCCESS
+CI_TESTING_CODEX=45948321671 SUCCESS · PRODUCTION=unchanged (main 42ca5005, DeliGO ccc2184a)
+```
+
 ## Occupancy revalidation fix — Railway TESTING deploy (2026-11-27, Claude Code)
 
 ```text

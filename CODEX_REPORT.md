@@ -6,7 +6,16 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T4 (F10-D1 + CAJA/ADMINISTRACIÓN) EN COMMITS SEPARADOS · PUSH A LA RAMA · CI · DESPLIEGUE PENDIENTE DE AUTORIZACIÓN (2026-11-27)
+=== LATEST HANDOFF — T4 CERRADA Y CERTIFICADA EN TESTING (14/14; ACUMULADO T1–T4 50/50) · T5 EN ANÁLISIS (2026-11-27)
+
+REPO=worktree deligo-estabilizacion · rama codex/estabilizacion-final (docs de cierre sobre 1a3c33f5) · testing-codex 1a3c33f5 (desplegado, DeliGO Copy 83c3f9d1, 70 migraciones) · main 42ca5005 intacta · Production intacto (DeliGO ccc2184a)
+T4=CLOSED_TESTING_CERTIFIED: F10-D1 (conciliación sin dinero / recupero en turno abierto, topes SQL por egreso y por turno, ajuste F5) + Caja/Administración · operador 14/14 · CI 45947494692 86/86 (991 pruebas) · verificación interna verificacion-t4-20261127T064018Z.json sin discrepancias · HTTP 0 5xx · Mesa Cron sin errores
+RESPALDO_PREVIO=deligo-testing-pre-t1-t3-20261127T054927Z.dump SHA-256 2aea210f5276dd578e504f676591056187cf2ce09bf3d8f01551504dbcbf851c (69 migraciones)
+HALLAZGOS=F-T4-01 P2-T48 resuelto · F-T4-02 catalog-tutorial local preexistente, pendiente de clasificación · F-T4-03 verificador muestra acentos mal (cosmético) · F-T4-04 cliente Prisma regenerado en node_modules compartido
+DIFERIDO=DF-1 complemento informativo · paridad enlaces/QR de mesa (después de Production + T7) · sondeo mesa-cuenta ante 400 · consulta periódica ante 403 persistente (revisión T5)
+SIGUIENTE_PASO=T5: estrategia de consolidación de la candidata a Production (sólo análisis y propuesta; sin integrar ramas)
+
+=== PRECEDING HANDOFF — T4 (F10-D1 + CAJA/ADMINISTRACIÓN) EN COMMITS SEPARADOS · PUSH A LA RAMA · CI · DESPLIEGUE PENDIENTE DE AUTORIZACIÓN (2026-11-27)
 
 REPO=worktree deligo-estabilizacion · rama codex/estabilizacion-final: 8c313cc4 feat(f10-d1) → db37ecd7 feat(nav) → docs(t4) · testing-codex d72f8bdf (69 migraciones en TESTING) · main 42ca5005 intacta · Production intacto · ningún servicio de Railway sigue la rama (TESTING → testing-codex, Production → main)
 REVISION_CHATGPT=alcance F10-D1, DF-1/DF-2/DF-3 y reorganización Caja/Administración aprobados; commits, push a la rama y CI autorizados; despliegue NO autorizado

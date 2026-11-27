@@ -1,5 +1,15 @@
 # FINDINGS REGISTRY — DeliGO
 
+## T4 findings (2026-11-27)
+
+```text
+F-T4-01=P2-T48 fixture collision (unique negocioId+numero, ~1/28 runs) · RESOLVED (deterministic sequence, test only, 1a3c33f5)
+F-T4-02=catalog-tutorial-static-contract local failure · PRE-EXISTING (files identical to e3bf6a27), not in CI · PENDING CLASSIFICATION (likely local CRLF), module untouched
+F-T4-03=T4 read-only verifier shows non-ASCII text mis-decoded («Conciliaci├│n») because PowerShell decodes psql output with the console code page · COSMETIC, tool only; stored data correct
+F-T4-04=prisma generate regenerated the client in the SHARED node_modules (junction to deligo-dev-local) with the additive F10-D1 models · RECORDED, no further shared-dependency change
+LIMITATION=a surplus hidden by another difference cannot be conciliated (no fictitious money; 409 SIN_SOBRANTE_EN_CIERRE) · a corrected supplier payment cannot be unlinked · DF-1 under-recorded outflow out of scope (roadmap)
+```
+
 ## CURRENT T23 FINDINGS AUTHORITY — P2-T23-R3B (2026-09-13)
 
 R3B implementa playback cliente confirmado y harness de replay Testing. La

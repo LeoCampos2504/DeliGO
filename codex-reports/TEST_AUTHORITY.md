@@ -1,5 +1,16 @@
 # CURRENT TEST AUTHORITY — POST-P2-T02-R6 (2026-09-13)
 
+## T4 test authority (2026-11-27)
+
+```text
+CI_FINAL=45947494692 on 1a3c33f5: 86/86 steps, 991 tests passed, 0 failed, 0 skipped (70 migrations on ephemeral postgres:16, full typecheck, build)
+NEW_SUITES=src/lib/f10-d1-correcciones-egresos.integration.test.ts (16: E1–E5, per-outflow and per-shift caps, API and direct-SQL concurrency incl. surplus still available, receiving-close race, compensated / open-shift / confirmed-withdrawal rules, supplier adjustments and link/unlink/cancel blocks, atomic audit, permissions, SQL guards) · src/lib/f10-d1-static-contract.test.ts · src/components/business/caja-administracion-static-contract.test.ts
+UPDATED_EXACT_CONTRACTS=f10-b0, f10-b2-0, f10-c1a, f10-c1c, f10-b2-1-turnos, f9-barcode, caja-tab.correcciones, owner-caja-egresos (no assertion removed or relaxed)
+FLAKY_FIXED=p2-t48-salon-personal-occupation-parity: deterministic table numbers per business
+LOCAL_ONLY_KNOWN=catalog-tutorial-static-contract «does not auto-start…» fails locally, reads only files unchanged since e3bf6a27, not part of CI → pre-existing, pending classification
+FUNCTIONAL=T4 14/14 operator PASS in TESTING · cumulative T1–T4 50/50
+```
+
 ## Historical test authority — P2-T39 SuperAdmin Push (2026-09-21)
 
 Las entradas R3/R3A/R3B son snapshots de cada gate y no deben confundirse con

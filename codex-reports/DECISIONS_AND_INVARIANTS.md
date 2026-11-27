@@ -1,5 +1,17 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
+## T4 — F10-D1 invariants and Caja/Administración, certified in TESTING (operator, 2026-11-27)
+
+- Post-close outflow corrections never reopen or modify a closed shift, never create a shift-less REVERSION
+  (20261118150000 block stays) and never change historical cash movements. Conciliation = no money, explains part of the
+  frozen surplus; recovery = RECUPERO_EGRESO with ONE positive leg in an OPEN shift of the receiving register, counted on
+  the day the cash enters (DF-3). Caps in SQL: per outflow (conciliated + recovered ≤ recorded) and per closed shift
+  (Σ conciliated ≤ counted − expected). Compensated outflows admit nothing; a confirmed withdrawal keeps real outflow.
+- Linked supplier payments: AJUSTE_DEUDA through the single F5 writer in the same transaction (ERROR_DE_CARGA /
+  DIFERENCIA_ACORDADA, DF-2); afterwards no link, unlink or adjustment cancellation. DF-1 stays out of scope.
+- Owner navigation implemented and certified: Caja = Vender · Cajas y turnos · Egresos; Administración = Compras ·
+  Etiquetas · Proveedores · Resumen; «Vender» never unmounts on the Caja ↔ Administración round trip.
+
 ## T1–T3 formally certified in TESTING + Caja/Administración reorganization approved (operator, 2026-11-27)
 
 - T1, T2 and T3 (incl. the occupancy revalidation fix `8eacd113`) are CERTIFIED IN TESTING: 36/36 operator tests,
