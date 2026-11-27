@@ -612,6 +612,8 @@ describe("T2 — etiqueta pendiente y escrituras de precio", () => {
     const aprobacion = await aprobacionEnCurso
     expect(aprobacion.ok).toBe(true)
     const etiqueta = await db.etiquetaPrecio.findFirstOrThrow({ where: { negocioId: e.n, productoId: e.yerba.id, estado: "PENDIENTE" } })
+    const productoTrasAprobacion = await db.producto.findUniqueOrThrow({ where: { id: e.yerba.id }, select: { stockCantidad: true } })
+    const movimientosTrasAprobacion = await db.movimientoInventario.count({ where: { negocioId: e.n, productoId: e.yerba.id } })
     await expect(empleadoEnCurso).rejects.toBeInstanceOf(CatalogoError)
     const confirmacion = await importacionEnCurso
     expect(esperaronPorProducto).toBe(true)
@@ -623,10 +625,10 @@ describe("T2 — etiqueta pendiente y escrituras de precio", () => {
     expect(producto.precio).toBe(3000)
     expect(producto.costo).toBe(1700)
     expect(producto.categoria).toBe("Importación T2")
-    expect(producto.stockCantidad).toBe(10)
+    expect(producto.stockCantidad).toBe(productoTrasAprobacion.stockCantidad)
     expect((await db.etiquetaPrecio.findUniqueOrThrow({ where: { id: etiqueta.id } })).estado).toBe("PENDIENTE")
     expect(await db.activacionPrecioVenta.count({ where: { negocioId: e.n, productoId: e.yerba.id } })).toBe(0)
-    expect(await db.movimientoInventario.count({ where: { negocioId: e.n, productoId: e.yerba.id } })).toBe(0)
+    expect(await db.movimientoInventario.count({ where: { negocioId: e.n, productoId: e.yerba.id } })).toBe(movimientosTrasAprobacion)
     const audit = await db.auditLog.findFirstOrThrow({ where: { recurso: "producto", recursoId: e.yerba.id, accion: "producto.modificado" }, orderBy: { fecha: "desc" } })
     expect(JSON.parse(audit.detalle).precioProtegidoPorEtiqueta).toBe(true)
   })
