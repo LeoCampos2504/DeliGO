@@ -35,11 +35,21 @@ function requestFor(token: string, url = "http://localhost/api/operaciones/mesas
   })
 }
 
+// T4 (2026-11-27): table numbers are unique per business (negocioId, numero). A random number in 4800–5799 for the
+// 9 tables of the same business collided in ~1 of 28 runs (CI 45946595327). Deterministic sequence per business:
+// every business here is created fresh by this suite, so the numbers never clash.
+const siguienteNumeroMesa = new Map<string, number>()
+function numeroMesa(negocio: string) {
+  const numero = (siguienteNumeroMesa.get(negocio) ?? 4800) + 1
+  siguienteNumeroMesa.set(negocio, numero)
+  return numero
+}
+
 async function createMesa(negocio: string, empleadoId?: string) {
   return db.mesa.create({
     data: {
       negocioId: negocio,
-      numero: 4800 + Math.floor(Math.random() * 1000),
+      numero: numeroMesa(negocio),
       empleadoId,
       activa: true,
     },

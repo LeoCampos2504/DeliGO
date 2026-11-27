@@ -599,3 +599,34 @@ describe("F10-D1 — focused controls (T4 final review)", () => {
     expect([f1.conciliaciones - f0.conciliaciones, f1.obligaciones - f0.obligaciones, f1.auditorias - f0.auditorias, f1.movimientos - f0.movimientos]).toEqual([1, 1, 2, 0])
   })
 })
+
+describe("F10-D1 — turn cap enforced by the SQL guard alone while surplus is still available", () => {
+  ephemeralTest("concurrent direct-SQL conciliations of DIFFERENT outflows, asking more than the surplus: only what fits commits, never above the original surplus", async () => {
+    for (let ronda = 0; ronda < 3; ronda++) {
+      const e = await escenario()
+      const t1 = await e.abrir(e.a.empleado.id, e.cajaA.id)
+      const pedidos = ["300", "300", "200", "200", "150"] as const
+      const ids = [] as string[]
+      for (const _ of pedidos) ids.push(await e.egresoCajero(e.a.cookie, gasto("300")))
+      await e.cerrar(e.a.empleado.id, t1.id, "500")
+      // Nothing conciliated yet: the whole 500 surplus is available; 1150 is requested at once, bypassing the service.
+      expect(await db.conciliacionEgresoCaja.count({ where: { turnoCajaId: t1.id } })).toBe(0)
+      const rs = await Promise.allSettled(ids.map((egresoId, i) => db.$transaction((tx) => tx.conciliacionEgresoCaja.create({
+        data: { negocioId: e.n, egresoId, turnoCajaId: t1.id, cajaFisicaId: e.cajaA.id, tipo: "IMPORTE_EXCEDENTE", importeDecimal: new Prisma.Decimal(pedidos[i]), motivo: "SQL concurrente", actorId: e.n, idempotencyKey: K(), idempotencyFingerprint: "x" },
+      }))))
+      const aceptados = pedidos.filter((_, i) => rs[i].status === "fulfilled").map(Number)
+      const rechazados = pedidos.filter((_, i) => rs[i].status === "rejected").map(Number)
+      const total = aceptados.reduce((s, x) => s + x, 0)
+      expect(aceptados.length).toBeGreaterThan(0)
+      expect(total).toBeLessThanOrEqual(500)
+      // Every rejection is the surplus guard, and is justified: it would not have fit even on top of what finally committed.
+      for (const r of rs) if (r.status === "rejected") expect(String(r.reason)).toMatch(/closed shift surplus/)
+      for (const r of rechazados) expect(total + r).toBeGreaterThan(500)
+      const guardado = await db.conciliacionEgresoCaja.aggregate({ where: { turnoCajaId: t1.id }, _sum: { importeDecimal: true } })
+      expect(guardado._sum.importeDecimal!.toFixed(2)).toBe(total.toFixed(2))
+      // The frozen close itself never moved.
+      const t = await db.turnoCaja.findUniqueOrThrow({ where: { id: t1.id } })
+      expect(t.efectivoContadoDecimal!.minus(t.efectivoEsperadoDecimal!).toFixed(2)).toBe("500.00")
+    }
+  })
+})
