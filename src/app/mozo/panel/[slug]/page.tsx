@@ -196,6 +196,11 @@ export default function MozoSalonPanelPage() {
   const [focusPedidoId, setFocusPedidoId] = useState<string | null>(null)
   const [focusResolved, setFocusResolved] = useState(false)
   const [state, setState] = useState<PageState>({ status: "loading" })
+  // Versión de la última lectura exitosa del panel. Se comparte únicamente como señal de revalidación con
+  // MesaOccupancyControl (mismo patrón que el Salón personal y el Salón del dueño): la ocupación se sigue resolviendo
+  // por su endpoint canónico server-side, nunca desde este panel. Sin esto, una ocupación abierta con el panel ya
+  // montado (QR del cliente, pedido del mozo) no se veía hasta recargar la página del navegador.
+  const [occupationRefreshKey, setOccupationRefreshKey] = useState(0)
   const [actionMesaIds, setActionMesaIds] = useState<Set<string>>(() => new Set())
   const [entregandoIds, setEntregandoIds] = useState<Set<string>>(() => new Set())
   const [actionError, setActionError] = useState<string | null>(null)
@@ -479,6 +484,8 @@ export default function MozoSalonPanelPage() {
 
       syncReadyMesaOrders(data, true)
       setState({ status: "ready", data })
+      // El sondeo y el botón «Actualizar» también revalidan el estado de ocupación de las mesas asignadas.
+      setOccupationRefreshKey((current) => current + 1)
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") return
       if (!silent) {
@@ -1064,6 +1071,7 @@ export default function MozoSalonPanelPage() {
                         onEntregar={(pedidoId) => handleEntregarPedido(mesa.id, pedidoId)}
                         onOccupancyClosed={() => void loadPanel({ silent: true })}
                         onVerDetalle={abrirDetalle}
+                        occupationRefreshKey={occupationRefreshKey}
                       />
                     )
                   })}
@@ -1117,6 +1125,7 @@ function MesaCard({
   onEntregar,
   onOccupancyClosed,
   onVerDetalle,
+  occupationRefreshKey,
 }: {
   mesa: MesaOperativa
   loading: boolean
@@ -1127,6 +1136,7 @@ function MesaCard({
   onEntregar: (pedidoId: string) => void
   onOccupancyClosed: () => void
   onVerDetalle: (pedidoId: string) => void
+  occupationRefreshKey: number
 }) {
   const readyOrders = mesa.pedidosActivos.filter((pedido) => pedido.estado === "listo_para_retirar")
 
@@ -1270,6 +1280,7 @@ function MesaCard({
               onClosed={onOccupancyClosed}
               onAccessDenied={onOccupancyClosed}
               allowClose={false}
+              refreshKey={occupationRefreshKey}
               actorFamily="cuenta_operativa"
             />
             {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes), solo mesas asignadas a este mozo. El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}

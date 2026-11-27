@@ -214,6 +214,9 @@ jobs:
       - run: bun --no-env-file test src/lib/mesa-ocupacion-familia.integration.test.ts
       - run: bun --no-env-file test src/lib/p2-t48-salon-personal-occupation-parity.integration.test.ts
       - run: bun --no-env-file test src/lib/p2-t53-negocio-occupation-refresh.test.ts
+      # Occupancy revalidation in the waiter table panel and the terminal Salón (pre-existing incident found in the
+      # T1–T3 certification, C5): every successful panel read bumps the control's refreshKey, same pattern as P2-T48/T53.
+      - run: bun --no-env-file test src/lib/occupancy-refresh-mozo-terminal-static-contract.test.ts
       # BUG-003: customer-view surfaces — owner session must match the business (other business → 404) and no employee
       # names, internal codes or operational-account data are exposed (mesas-public, by-codigo).
       - run: bun --no-env-file test src/lib/bug003-superficies-publicas.integration.test.ts

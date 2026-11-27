@@ -197,6 +197,10 @@ export default function OperacionesSalonPage() {
   const actingMesaIdsRef = useRef<Set<string>>(new Set())
   const acRef = useRef<AbortController | null>(null)
   const genRef = useRef(0)
+  // Versión de la última lectura exitosa del panel, compartida sólo como señal de revalidación con
+  // MesaOccupancyControl (mismo patrón que el Salón personal y el del dueño). La ocupación se sigue resolviendo por su
+  // endpoint canónico; sin esto, una ocupación abierta con la mesa ya seleccionada no se veía hasta recargar.
+  const [occupationRefreshKey, setOccupationRefreshKey] = useState(0)
 
   const applyTransientError = useCallback(() => {
     setPhase((prev) => (prev.kind === "ready" ? { ...prev, stale: true } : { kind: "error" }))
@@ -258,6 +262,7 @@ export default function OperacionesSalonPage() {
         stale: false,
       })
       setLastUpdated(Date.now())
+      setOccupationRefreshKey((current) => current + 1)
     } catch {
       if (ac.signal.aborted) return
       if (gen !== genRef.current) return
@@ -491,6 +496,7 @@ export default function OperacionesSalonPage() {
       stale={phase.stale}
       lastUpdated={lastUpdated}
       onRefresh={refresh}
+      occupationRefreshKey={occupationRefreshKey}
       selectedMesa={selectedMesa}
       onSelectMesa={setSelectedMesa}
       actingIds={actingIds}
@@ -509,6 +515,7 @@ function SalonView({
   stale,
   lastUpdated,
   onRefresh,
+  occupationRefreshKey,
   selectedMesa,
   onSelectMesa,
   actingIds,
@@ -520,6 +527,7 @@ function SalonView({
   stale: boolean
   lastUpdated: number | null
   onRefresh: () => void
+  occupationRefreshKey: number
   selectedMesa: number | null
   onSelectMesa: (n: number | null) => void
   actingIds: Set<string>
@@ -822,6 +830,7 @@ function SalonView({
                   onClosed={onRefresh}
                   onAccessDenied={onRefresh}
                   allowClose={false}
+                  refreshKey={occupationRefreshKey}
                   actorFamily="terminal"
                 />
                 {/* P2: única acción normal de cierre — "Cerrar cuenta" (comercial, con bloqueo por pendientes). El cierre técnico de MesaOccupancyControl queda oculto (allowClose=false) para no ofrecer un bypass junto a esta acción. */}
