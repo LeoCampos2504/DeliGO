@@ -3,13 +3,46 @@
 | Tanda | Estado |
 |---|---|
 | T0 documentación | COMPLETADA |
-| T1 nueve correcciones visuales | **CERTIFICADA FUNCIONALMENTE EN TESTING** (2026-11-27, `32cddd1e`, operador A1–A6/B1–B7 aprobadas + verificación interna) |
-| T2 seguridad y salud técnica | CI `8ca2053e` (run `45921529454`) · **regresión funcional focalizada APROBADA EN TESTING** (B8–B10, 2026-11-27) · XLSX de Excel real en T5 |
-| T3 sesiones simultáneas y HTTP 401 (P1-09, P1-10) | CI `3eb53576` (run `45928752129`) · **CERTIFICADA FUNCIONALMENTE EN TESTING** (C1–C12, 2026-11-27) para dueño, mozo y cajero/PyR · **pendientes 2 complementarias de Salón personal** (cierre comercial y cancelación con el dueño conectado) · detalle `T3_SESIONES_SIMULTANEAS_HTTP401.md` |
-| T4 F10-D1 | Pendiente · obligatoria antes de habilitar egresos y compras en Production |
+| T1 nueve correcciones visuales | **CERTIFICADA EN TESTING** (2026-11-27, cierre formal; `32cddd1e` + `d72f8bdf`) |
+| T2 seguridad y salud técnica | **CERTIFICADA EN TESTING** (CI `8ca2053e` run `45921529454` + regresión funcional B8–B10, 2026-11-27) · XLSX de Excel real en T5 |
+| T3 sesiones simultáneas y HTTP 401 (P1-09, P1-10) | **CERTIFICADA EN TESTING** (2026-11-27): dueño, mozo, cajero/PyR y Salón personal (S1 `salon`, S2 `salon_personal`) · corrección de revalidación de ocupación `8eacd113` certificada (M1–M3, T1–T3) · **36/36** pruebas · detalle `T3_SESIONES_SIMULTANEAS_HTTP401.md` |
+| Reorganización Caja / Administración (panel del dueño) | **APROBADA PARA ANTES DE PRODUCTION** (operador, 2026-11-27) · sólo navegación · alcance técnico en `T3_SESIONES_SIMULTANEAS_HTTP401.md`, no implementada · entrará en el próximo ciclo de despliegue a TESTING |
+| T4 F10-D1 | **DISEÑO EN CURSO** (autorizado 2026-11-27; implementación NO autorizada) · `codex-reports/F10_D1_CONCILIACION_EGRESOS_DISENO.md` · obligatoria antes de habilitar egresos y compras en Production |
 | T5 candidata · T6 Production · T7 metodología | Pendientes |
 
 Detalle T2: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md` («ESTADO VIGENTE»). La sección siguiente es histórica.
+
+### TAREA PUNTUAL APROBADA ANTES DE PRODUCTION — reorganización de Caja y Administración (operador, 2026-11-27)
+
+Panel del dueño (negocios genéricos): **Caja** queda con Vender · Cajas y turnos · Egresos; nueva sección principal
+**Administración**, junto a Caja, con Compras · Etiquetas · Proveedores · Resumen. Se conservan las demás secciones.
+Sólo reorganización de componentes existentes: sin cambios de lógica financiera, permisos, APIs ni base; mismos filtros,
+formularios y comportamiento; compatibilidad de navegación y enlaces; estilo claro/oscuro; prioridad móvil sin mover el
+desplazamiento horizontal al menú principal. **No implementada**; se incluirá en el próximo ciclo de despliegue a
+TESTING. No confundir con la paridad de enlaces/QR de mesa (después de Production y T7).
+
+### PRIORIDAD MÁXIMA DESPUÉS DE PRODUCTION — paridad de enlaces y QR de mesa entre las pantallas de Salón (operador, 2026-11-27)
+
+Registrada, **NO investigada ni implementada**; **no bloquea** la estabilización ni el traslado a Production (decisión
+expresa del operador). Es la **primera corrección** después de llevar la versión estable a Production y activar
+`DEVELOPMENT_WORKFLOW.md` (T7).
+
+- Observado en la certificación complementaria sobre `d72f8bdf`: el **Salón de terminal** no muestra las opciones de
+  enlace y QR de la mesa (sólo la relacionada con el mozo) y el **Salón personal** no permite compartir los enlaces de la
+  mesa. No afectó la ocupación, el cierre ni la cancelación.
+- Alcance a definir: Salón de terminal y Salón personal comparados con las superficies que ya tienen estas opciones;
+  acceso a los enlaces de mesa; ver y usar los QR; compartir los enlaces; **respetar los permisos y restricciones de cada
+  actor** (no se presupone que todos los roles tengan los mismos permisos; la Terminal Operativa sigue sin cierre
+  comercial).
+
+### Política de estabilización hasta Production (operador, 2026-11-27)
+
+- Posibles bloqueantes, a evaluar: problemas críticos de seguridad, autorización, aislamiento, dinero, stock,
+  auditoría, integridad de datos o regresiones funcionales graves.
+- Mejoras visuales, funcionalidades secundarias faltantes y problemas menores de UX: **se registran en el roadmap** sin
+  ampliar la estabilización. No se resuelven incidencias laterales sin autorización expresa.
+- No se eliminan controles ni se ocultan problemas para acelerar el traslado.
+- No elimina los requisitos obligatorios ya aprobados para T4 (F10-D1, D-2), T5, T6 y T7.
 
 ### Certificación funcional T1–T3 en TESTING (2026-11-27) — hallazgos
 

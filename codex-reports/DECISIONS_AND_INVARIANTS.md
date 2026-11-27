@@ -1,5 +1,23 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
+## T1–T3 formally certified in TESTING + Caja/Administración reorganization approved (operator, 2026-11-27)
+
+- T1, T2 and T3 (incl. the occupancy revalidation fix `8eacd113`) are CERTIFIED IN TESTING: 36/36 operator tests,
+  CI, read-only internal verification and HTTP review. Not a Production authorization.
+- **Owner panel navigation (approved before Production, not implemented):** Caja = Vender · Cajas y turnos · Egresos;
+  new top-level **Administración** next to Caja = Compras · Etiquetas · Proveedores · Resumen. Presentation only:
+  components, behaviour, permissions, APIs, data and deep links unchanged.
+
+## Stabilization policy until Production (operator, 2026-11-27)
+
+- Only critical issues of security, authorization, isolation, money, stock, audit, data integrity or serious functional
+  regressions are evaluated as possible blockers. Visual improvements, missing secondary features and minor UX issues go
+  to the roadmap without widening the stabilization; no lateral fix without explicit authorization; controls are never
+  removed and problems never hidden to speed up the move.
+- Does not remove the mandatory requirements already approved for T4 (F10-D1, D-2), T5, T6 and T7.
+- **Table link/QR parity across Salón screens** (terminal and personal Salón; permissions per actor) is recorded as the
+  FIRST priority fix after Production + T7; it does not block stabilization.
+
 ## Occupancy revalidation invariant (2026-11-27)
 
 - Every host that mounts `MesaOccupancyControl` next to a periodic panel read must pass a `refreshKey` bumped on each

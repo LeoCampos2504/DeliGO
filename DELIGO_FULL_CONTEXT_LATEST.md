@@ -1,4 +1,14 @@
-## LATEST UPDATE — T1–T3 CERTIFICADAS EN TESTING · CORRECCIÓN DE OCUPACIÓN 8eacd113 (2026-11-27)
+## LATEST UPDATE — T1–T3 CERRADAS (36/36) · F10-D1 EN DISEÑO · CAJA/ADMINISTRACIÓN APROBADA (2026-11-27)
+
+- **T1, T2, T3 y la corrección de ocupación `8eacd113`: CERTIFICADAS EN TESTING** (`testing-codex` `d72f8bdf`,
+  DeliGO Copy `87d1c139`). 36/36 pruebas del operador, CI, verificación interna de solo lectura y HTTP limpios.
+- **Política hasta Production:** sólo bloquean los problemas críticos; lo menor va al roadmap.
+- **Aprobado para antes de Production (no implementado):** Caja = Vender · Cajas y turnos · Egresos; nueva
+  **Administración** = Compras · Etiquetas · Proveedores · Resumen.
+- **Diferido:** paridad de enlaces/QR de mesa (primera prioridad después de Production y T7).
+- **T4:** diseño de F10-D1 en `codex-reports/F10_D1_CONCILIACION_EGRESOS_DISENO.md`; implementación no autorizada.
+
+## PRECEDING UPDATE — T1–T3 CERTIFICADAS EN TESTING · CORRECCIÓN DE OCUPACIÓN 8eacd113 (2026-11-27)
 
 - **TESTING:** `testing-codex` = `32cddd1e`, DeliGO Copy `084d76ad` SUCCESS; respaldo previo SHA-256 `28453218…910c`.
 - **Certificación:** operador 28/28 + verificación interna de solo lectura sin inconsistencias; 0 5xx; 0 HTTP 401 de

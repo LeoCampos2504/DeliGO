@@ -1,5 +1,17 @@
 # COMPLETED TASKS — DeliGO (índice compacto)
 
+## T1–T3 — CLOSED_TESTING_CERTIFIED (formal close, 2026-11-27)
+
+```text
+T1_T2_T3_STATUS=CLOSED_TESTING_CERTIFIED (not a Production authorization)
+OCCUPANCY_FIX=8eacd113 CLOSED_TESTING_CERTIFIED (M1–M3 waiter panel, T1–T3 terminal Salón; polling + «Actualizar» + external close)
+TESTS=36/36 operator PASS (28 original on 32cddd1e + 8 complementary on d72f8bdf; S1 repeated with the Salón-personal employee)
+DEPLOY=testing-codex d72f8bdf · DeliGO Copy 87d1c139 SUCCESS (exact commitHash) · backup deligo-testing-pre-t1-t3-20261127T035654Z.dump SHA-256 78d22059eb33cc8a3db4742c68269d7ab4cb2c567c8ebf3bbb1a18402ea5bdf4 · CI testing-codex 45937251271 SUCCESS (83/83; 960 tests per ChatGPT for branch run 45936472239)
+INTERNAL=verificacion-t1-t3-20261127T042029Z.json + 20261127T042632Z.json: S1 close cerradaPorTipo=salon (Salón employee), S2 canceladoPor=salon_personal with 1 event, M3/T3 closes by the waiter, no Terminal commercial close, no duplicates, old shift fingerprint equal, B8 permissions revoked
+HTTP=04:01–04:16 UTC: 0 5xx, 0 403, no 401 series; occupancy re-queried once per assigned/selected table per panel read
+DEFERRED=table link/QR parity across Salón screens (first priority after Production + T7) · /api/public/mesa-cuenta polling on 400 · 403-persistent periodic re-query (T5 review)
+```
+
 ## T1–T3 — JOINT TESTING DEPLOY AND FUNCTIONAL CERTIFICATION (2026-11-27)
 
 ```text

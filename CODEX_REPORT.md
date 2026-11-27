@@ -6,7 +6,17 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T1–T3 CERTIFICADAS EN TESTING (32cddd1e) · CORRECCIÓN DE OCUPACIÓN 8eacd113 PUBLICADA PARA CI · DESPLIEGUE PENDIENTE DE AUTORIZACIÓN (2026-11-27)
+=== LATEST HANDOFF — T1–T3 CERRADAS Y CERTIFICADAS EN TESTING (36/36) · T4 F10-D1 EN DISEÑO · REORGANIZACIÓN CAJA/ADMINISTRACIÓN APROBADA (2026-11-27)
+
+REPO=worktree deligo-estabilizacion · rama codex/estabilizacion-final (docs de cierre sobre d72f8bdf) · testing-codex d72f8bdf (desplegado, DeliGO Copy 87d1c139) · main 42ca5005 intacta · Production intacto
+CERTIFICACION=T1, T2, T3 y corrección de ocupación 8eacd113: CLOSED_TESTING_CERTIFIED · 36/36 (28 + 8; S1 repetido como Salón personal → cerradaPorTipo=salon) · CI 45936472239/45937251271 SUCCESS · verificación interna y HTTP sin inconsistencias
+POLITICA=hasta Production sólo bloquean problemas críticos; lo menor va al roadmap; no se resuelven temas laterales sin autorización
+DIFERIDO=paridad enlaces/QR de mesa (primera prioridad después de Production + T7) · sondeo mesa-cuenta ante 400 · consulta periódica ante 403 persistente (T5)
+ANTES_DE_PRODUCTION=reorganización Caja (Vender, Cajas y turnos, Egresos) / Administración (Compras, Etiquetas, Proveedores, Resumen) · aprobada, NO implementada, próximo ciclo TESTING
+T4=diseño F10-D1 en codex-reports/F10_D1_CONCILIACION_EGRESOS_DISENO.md · implementación NO autorizada
+SIGUIENTE_PASO=revisión del diseño F10-D1 y de las decisiones del operador · luego autorización de implementación (F10-D1 + reorganización en un mismo ciclo TESTING)
+
+=== PRECEDING HANDOFF — T1–T3 CERTIFICADAS EN TESTING (32cddd1e) · CORRECCIÓN DE OCUPACIÓN 8eacd113 PUBLICADA PARA CI · DESPLIEGUE PENDIENTE DE AUTORIZACIÓN (2026-11-27)
 
 REPO=worktree deligo-estabilizacion · rama codex/estabilizacion-final (fix 8eacd113 + docs) · testing-codex 32cddd1e (desplegado) · main 42ca5005 intacta
 TESTING=DeliGO Copy 084d76ad SUCCESS commit 32cddd1e (push 327d6c73..32cddd1e 2026-11-27 02:45 UTC) · respaldo previo deligo-testing-pre-t1-t3-20261127T024352Z.dump SHA-256 28453218c77ac92d3d78d7c756537957df4bcb8c43d84420acc38e01d0ed910c · CI testing-codex 45930242578 SUCCESS · Production intacto

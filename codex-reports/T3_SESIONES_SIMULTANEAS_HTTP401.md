@@ -163,6 +163,35 @@ URL: `https://deligo-copy-production.up.railway.app` · dueño y empleados ficti
 - **Incidencia preexistente** (panel del mozo y Salón de terminal sin revalidar la ocupación): corrección `8eacd113`,
   pendiente de despliegue y prueba focalizada. Mejora del sondeo de `mesa-cuenta` ante 400: ROADMAP (no autorizada).
 
+## Cierre formal T1–T3 (2026-11-27)
+
+- Corrección `8eacd113` desplegada (`d72f8bdf`, DeliGO Copy `87d1c139`). Pruebas complementarias 8/8: M1–M3 (panel del
+  mozo), T1–T3 (terminal; sin cierre comercial desde la terminal), S1 y S2 (Salón personal con el dueño conectado).
+- S1 se repitió: la primera ejecución (04:11:13) quedó como `mozo` porque el área del empleado se cambió a Salón 34 s
+  después (`empleado.area_cambiada` 04:11:47); la repetición (04:25:14) quedó `cerradaPorTipo='salon'`. S2 (04:14:22)
+  `canceladoPor='salon_personal'` con un único evento.
+- HTTP 04:01–04:16: 0 5xx, 0 403, sin series de 401; la ocupación se revalida una vez por mesa en cada lectura del panel.
+- **T1, T2 y T3 CERTIFICADAS EN TESTING, 36/36.** Incidencias diferidas: paridad enlaces/QR (después de Production y
+  T7), sondeo de `mesa-cuenta` ante 400, consulta periódica ante 403 persistente (revisión en T5).
+
+## Reorganización Caja / Administración — alcance técnico mínimo (aprobada para antes de Production, NO implementada)
+
+- Único archivo de navegación: `src/components/business/business-panel.tsx` (lista de pestañas principales) y
+  `src/components/business/caja-tab.tsx` (subpestañas `vender | resumen | turnos | egresos | proveedores | compras |
+  etiquetas`). Propuesta: nueva pestaña principal `administracion` (sólo rubro `negocio`, igual que Caja) que monte los
+  mismos componentes `OwnerCompras`, `EtiquetasPrecioLista`, `OwnerProveedores` y `ResumenView`; Caja conserva
+  `vender | turnos | egresos`. El salto Compras → «Ver proveedor» (`proveedorAbrir`) pasa a vivir dentro de
+  Administración. Los avisos que navegan a pestañas (`navigateTo`) se mapean a la pestaña nueva; sin cambios de APIs,
+  permisos ni datos.
+- Se mueven con sus subpestañas las consultas de contadores (`recepcionesPendientes` → «Compras (N)»,
+  `etiquetasPendientes` → «Etiquetas (N)»); el botón de Resumen «ir a vender» (`irAVender`) pasa a navegar a la
+  pestaña Caja/Vender mediante `requestPanelNavigation` (respeta la guarda de navegación existente).
+- Riesgos: avisos o enlaces que apunten a `caja` y a una subpestaña movida (mapa `tabMap` de `business-panel.tsx`);
+  contratos estáticos que fijan la estructura de `caja-tab.tsx` (`caja-tab-responsive-static-contract`, `f10-b0`,
+  `f10-b1`, `f10-c1c`, `f4-c5`, `f9-barcode` y otros) a actualizar sin debilitar; el menú principal del rubro negocio
+  pasa de 8 a 9 pestañas, por lo que hay que comprobar 320–375 px (en móvil ya muestran sólo el ícono, E10) para no
+  trasladar el desplazamiento horizontal; `VenderView` no debe desmontarse por la reorganización (invariante T1-01).
+
 ## Límites y pendientes
 
 - **Compatibilidad residual (documentada, no eliminada):** `/api/notificaciones` sin `feed` (bundles anteriores a F4-A;

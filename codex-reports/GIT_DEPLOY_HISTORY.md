@@ -1,5 +1,16 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## Occupancy revalidation fix — Railway TESTING deploy (2026-11-27, Claude Code)
+
+```text
+AUTHORIZATION=operator: deploy d72f8bdf to TESTING only (backup first, fast-forward, no force)
+CI=branch run 45936472239 (job 140300722398) SUCCESS 83/83 on d72f8bdf
+BACKUP=deligo-testing-pre-t1-t3-20261127T035654Z.dump 1530751 bytes SHA-256 78d22059eb33cc8a3db4742c68269d7ab4cb2c567c8ebf3bbb1a18402ea5bdf4 (PASS; re-verified by the session)
+PUSH=32cddd1e..d72f8bdf testing-codex (03:58:56 UTC)
+RAILWAY_TESTING=DeliGO Copy 87d1c139-94d7-44ff-ac41-4cf52e46ae38 SUCCESS commitHash d72f8bdf exact · chat 4f259881 · Review Expiry bf583fbf SUCCESS · Mesa Cron b15d83f2 SKIPPED (bb2bb286 stays active) · 69 migrations, none pending · Ready, 0 5xx
+CI_TESTING_CODEX=45937251271 SUCCESS · PRODUCTION=unchanged (main 42ca5005)
+```
+
 ## T1–T3 — joint Railway TESTING deploy (2026-11-27, Claude Code)
 
 ```text
