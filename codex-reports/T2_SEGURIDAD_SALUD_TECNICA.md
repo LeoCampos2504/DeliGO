@@ -1,5 +1,41 @@
 # T2 — seguridad y salud técnica: avance local, NO cerrado
 
+## Reanudación y medición actual — 2026-11-26
+
+Estado recuperado: rama `codex/estabilizacion-final`, HEAD `2356969316b81c8f9456ac9747093c46992e5ac4`; sin commits posteriores a ese HEAD al reanudar y sin cambios staged. Los cinco commits T2 previos (`a995d894`…`23569693`) se conservaron. Se continuó sobre sus modificaciones locales; no se reinició ni se descartó trabajo. La rama tiene como base certificada `327d6c739a55e2f6b5da89f1ec125a24013eb345`.
+
+### Avances de esta continuación
+
+- El workflow general invoca la prueba concurrente de permisos T2 en un job con PostgreSQL 16 efímero; las variables `DELIGO_TEST_DATABASE_URL`, `DELIGO_ENVIRONMENT=TESTING` y `DELIGO_EPHEMERAL_TEST_DB=1` están declaradas. No hay paso de despliegue.
+- Se agregó una prueba controlada por barreras para que la revocación real se inicie mientras una operación ya sostiene `FOR SHARE`; consulta `pg_stat_activity` hasta observar la espera del `UPDATE` de empleado, libera la operación y comprueba que la siguiente alta es rechazada. Otra barrera cubre revocación confirmada antes de iniciar la transacción de alta. Son pruebas escritas; ambas siguen pendientes de ejecución en PostgreSQL.
+- La importación suma casos para 2000/2001 filas, replay con variantes/proveedor sin relaciones ni auditoría duplicadas, conservación de nombre y celdas vacías, actualización exclusiva del costo, protección del stock/precio, ausencia de asientos y rechazo de variantes nuevas sobre producto existente. Escritos, no ejecutados en DB.
+- Se actualizaron los contratos estáticos históricos para el estado real del carrito y la ubicación de presentación de variantes; el contrato I3 permite los escritores de creación de catálogo/importación sólo si su stock inicial es cero. R2B-F1 + R2C + I3 pasan juntos: **69/69**.
+- Correcciones de tipos sin cambio funcional deliberado: query nullable de mozo y eliminación tipada de la propiedad Leaflet mediante `Reflect.deleteProperty`.
+
+### Matriz vigente: escrito no significa ejecutado
+
+| Área | Estado actual | Pendiente verificable |
+|---|---|---|
+| Revocación de permisos de catálogo | Transacciones, revocación concurrente/prioritaria y carrera de proveedor tienen pruebas escritas; los mecanismos usan `FOR SHARE` frente a `UPDATE` de empleado. | Ejecutar contra PostgreSQL efímero en CI y revisar todos los seis permisos, revocación parcial/completa y cada tanda de importación. |
+| Etiquetas pendientes vs. precio | El bloqueo de fila protege precio activo; el recuento de etiquetas de empleado ocurre fuera de la transacción y el de importación dentro pero puede compartir snapshot Serializable. | **Carrera no resuelta ni certificada.** Hace falta prueba determinista sobre la ruta de aprobación de precios y ruta de catálogo/importación. No declarar protección frente a etiqueta insertada concurrentemente. |
+| D-3 / aislamiento y rutas | Hay suites de servicio y pruebas estáticas existentes. | Matriz completa de rutas reales, dos negocios, suplantación de actores, seis permisos, ocultamiento de costos, variantes/historial, etiquetas y no efectos ante rechazo sigue incompleta y no ejecutada. |
+| Importación | Idempotencia, 151 grupos, continuaciones y nuevos límites/campos están cubiertos en código de prueba; guard fail-closed en CI. | Nuevas suites DB no ejecutadas. Falta completar conflictos de identificación, asociaciones/precios/auditorías con casos concurrentes y protección de etiquetas con rutas reales. |
+| XLSX | CSV y formatos: 3/3 ejecutados previamente. | Sin parser XML estándar/buscador XLSX ni navegador de automatización disponible en dependencias existentes; happy-dom no implementa correctamente `getElementsByTagNameNS("*", ...)`. No se tocó el importador ni se añadió un mock. XLSX sintético queda pendiente de CI con navegador/XML compatible; archivo guardado por Excel real queda en T5. |
+| TypeScript | Medición completa de continuación: **9 diagnósticos** (2 clientes Prisma históricos no generados, 2 mozo, 2 estado de prompt de notificaciones, 1 callback de promocionados y 1 suscripción Push potencialmente nula; mapas ya corregidos). | No se modificaron GPS, notificaciones, destacado ni la lógica de mozo para silenciar errores ajenos a T2. Los clientes históricos requieren generación aislada; no se generaron ni se tocó `node_modules` compartido. Typecheck no aprobado. |
+| CI | Tests focalizados estáticos y ESLint corren; workflow está configurado para PostgreSQL 16 efímero, typecheck y suites declaradas. | CI remoto no ejecutado; nuevas suites de DB, XLSX y todo el workflow siguen pendientes. |
+
+### Controles realizados al reanudar
+
+- `bun --no-env-file test` sobre `category-filter-operational-static-contract`, `product-variants-static-contract` e `I3 wiring`: **69 pass / 0 fail** (225 expect calls).
+- ESLint focalizado sobre los archivos modificados, incluida la nueva prueba concurrente: **exit 0**.
+- `git diff --check`: sin errores.
+- Typecheck completo: sigue fallando con los 9 diagnósticos enumerados; no se presenta como aprobado.
+- No se ejecutaron suites que requieren DB, XLSX en happy-dom, pruebas funcionales manuales, CI remoto, migraciones ni conexiones a bases persistentes.
+
+### Dictamen
+
+T2 está **en curso**, no cerrada ni lista para push de validación todavía: quedan incompleta la carrera de etiquetas, huecos D-3, XLSX sintético y typecheck global. La propuesta para cuando esos bloqueos estén resueltos será el push ordinario exclusivo `git push origin codex/estabilizacion-final:refs/heads/codex/estabilizacion-final` (sin tags ni otras ramas); no se ejecutó. El CI no despliega y sólo usa el servicio PostgreSQL efímero declarado en el workflow.
+
 Base de trabajo: `codex/estabilizacion-final`, HEAD inicial `392d920a`, base certificada `327d6c739a55e2f6b5da89f1ec125a24013eb345`. Sin push, CI remoto, despliegue, migraciones, ni uso de bases reales. T1 sigue implementada localmente, sin certificar. T2 está incompleta; no iniciar T3 hasta cerrar sus controles.
 
 ## Cambios locales

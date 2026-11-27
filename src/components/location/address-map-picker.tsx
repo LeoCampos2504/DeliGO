@@ -17,7 +17,7 @@ import { Loader2, Crosshair } from "lucide-react"
 // tras esta tarea pero se preserva sin tocar por tener un test estático
 // de contrato iOS que referencia su archivo).
 
-delete (L.Icon.Default.prototype as Record<string, unknown>)._getIconUrl
+Reflect.deleteProperty(L.Icon.Default.prototype, "_getIconUrl")
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",

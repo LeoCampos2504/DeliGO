@@ -32,7 +32,7 @@ const DEFAULT_ZOOM = 15
 const GPS_ZOOM = 16
 
 // Fix default marker icon paths — Leaflet's default icon URLs break with bundlers
-delete (L.Icon.Default.prototype as Record<string, unknown>)._getIconUrl
+Reflect.deleteProperty(L.Icon.Default.prototype, "_getIconUrl")
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",

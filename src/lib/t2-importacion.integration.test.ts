@@ -75,6 +75,9 @@ describe("T2 importación: concurrencia, reintentos y tandas", () => {
 
   test("límites de filas e identificaciones repetidas se validan en la vista previa", async () => {
     const a = await negocio()
+    const limite = await previsualizarImportacion(db, { negocioId: a.id, actor, body: { campos: ["nombre"], filas: Array.from({ length: 2000 }, (_, i) => ({ fila: i + 2, nombre: `P${i}` })) } })
+    if (!limite.ok) throw new Error(limite.code)
+    expect(limite.value.resumen.filas).toBe(2000)
     const excedente = await previsualizarImportacion(db, { negocioId: a.id, actor, body: { campos: ["nombre"], filas: Array.from({ length: 2001 }, (_, i) => ({ fila: i + 2, nombre: `P${i}` })) } })
     expect(excedente.ok).toBe(false)
     if (!excedente.ok) expect(excedente.code).toBe("DEMASIADAS_FILAS")
@@ -146,6 +149,33 @@ describe("T2 importación: concurrencia, reintentos y tandas", () => {
     expect(await db.auditLog.count({ where: { recurso: "importacion_productos", recursoId: primero.value.importacionId, accion: "catalogo.importacion" } })).toBe(1)
     expect(await db.movimientoInventario.count({ where: { negocioId: a.id } })).toBe(0)
     expect(await db.movimientoFinanciero.count({ where: { negocioId: a.id } })).toBe(0)
+  })
+
+
+  test("actualizar respeta el nombre y campos vacíos y sólo cambia costo de catálogo", async () => {
+    const a = await negocio()
+    const producto = await db.producto.create({ data: { negocioId: a.id, nombre: "Nombre original", codigoBarras: "123456789", descripcion: "Descripción existente", marca: "Marca", precio: 100, costo: 50, controlStock: true, stockCantidad: 9 } })
+    const base = { campos: ["nombre", "codigoBarras", "descripcion", "marca", "costo"], filas: [{ fila: 2, nombre: "Nombre del archivo", codigoBarras: "123456789", descripcion: "", marca: "", costo: "70,50" }] }
+    const previa = await previsualizarImportacion(db, { negocioId: a.id, actor, body: base })
+    if (!previa.ok) throw new Error(previa.code)
+    expect(previa.value.grupos[0].tipo).toBe("EXISTENTE")
+    const body = { ...base, clave: randomUUID(), decisiones: { [previa.value.grupos[0].clave]: "actualizar" } }
+    const resultado = await ejecutarImportacion(db, { negocioId: a.id, actor, body })
+    if (!resultado.ok) throw new Error(resultado.code)
+    expect(resultado.value.resultados[0].resultado).toBe("ACTUALIZADO")
+    const actual = await db.producto.findUniqueOrThrow({ where: { id: producto.id } })
+    expect(actual.nombre).toBe("Nombre original")
+    expect(actual.descripcion).toBe("Descripción existente")
+    expect(actual.marca).toBe("Marca")
+    expect(actual.costo).toBe(70.5)
+    expect(actual.precio).toBe(100)
+    expect(actual.stockCantidad).toBe(9)
+    expect(await db.movimientoInventario.count({ where: { negocioId: a.id } })).toBe(0)
+    expect(await db.movimientoFinanciero.count({ where: { negocioId: a.id } })).toBe(0)
+    const variacion = await previsualizarImportacion(db, { negocioId: a.id, actor, body: { campos: ["nombre", "variante"], filas: [{ fila: 2, nombre: "Nombre original", variante: "Nueva" }] } })
+    if (!variacion.ok) throw new Error(variacion.code)
+    expect(variacion.value.grupos[0].tipo).toBe("ERROR")
+    expect(await db.productoVariante.count({ where: { productoId: producto.id } })).toBe(0)
   })
 
 })

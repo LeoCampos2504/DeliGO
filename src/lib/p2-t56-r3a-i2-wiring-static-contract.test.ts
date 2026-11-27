@@ -365,8 +365,15 @@ describe("I3 — Caja e Inventario con reservas ACTIVA (autoridad única)", () =
       .filter(({ src }) => writeCalls(src).some((call) => /\bstockCantidad\s*:/.test(call)))
       .map(({ path }) => path)
     expect(sorted(writers)).toEqual(
-      sorted([AUTHORITY, "src/app/api/negocio/productos/route.ts", "src/app/api/negocio/productos/[id]/variantes/route.ts"])
+      sorted([AUTHORITY, "src/app/api/negocio/productos/route.ts", "src/app/api/negocio/productos/[id]/variantes/route.ts", "src/lib/catalogo-empleado-service.ts", "src/lib/importacion-productos-service.ts"])
     )
+    // Los dos nuevos autores sólo crean productos con stock inicial cero; no pueden modificarlo.
+    for (const path of ["src/lib/catalogo-empleado-service.ts", "src/lib/importacion-productos-service.ts"]) {
+      const llamadas = writeCalls(read(path)).filter((call) => /\bstockCantidad\s*:/.test(call))
+      expect(llamadas.length).toBe(1)
+      expect(llamadas[0]).toMatch(/^producto\.create\(/)
+      expect(llamadas[0]).toMatch(/\bstockCantidad\s*:\s*0\b/)
+    }
     // edición de producto/variante: stockCantidad intencionalmente NO aceptado
     expect(read("src/app/api/negocio/productos/[id]/route.ts")).toContain("stockCantidad is intentionally NOT accepted here")
     expect(read("src/app/api/negocio/productos/[id]/variantes/[varianteId]/route.ts")).toContain("stockCantidad is intentionally NOT accepted here")

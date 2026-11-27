@@ -6,9 +6,9 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T2 EN CURSO, NO CERRADO
+=== LATEST HANDOFF — T2 REANUDADA, EN CURSO, NO CERRADA (2026-11-26)
 
-Rama `codex/estabilizacion-final`, base inicial `392d920a`; commits locales `a995d894`, `84a29bf4`, `8f02a377`, `f63c8365`, `a2306f47`. T2 incompleta: cobertura y verificaciones pendientes; sin push, CI remoto ni despliegue. Informe y matriz: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md`. C5 integrado, pruebas técnicas parcialmente preparadas, typecheck aún fallido, y ventanas de revocación de proveedor y etiqueta requieren seguimiento. T1 sigue implementada localmente sin certificación. Próximo paso: continuar T2, no iniciar T3. La contradicción de `deligo-closeout` sobre FULL_CONTEXT versionado sigue pendiente.
+Worktree `C:\Leo Campos\Trabajo\deligo-estabilizacion`, rama `codex/estabilizacion-final`, HEAD recuperado `2356969316b81c8f9456ac9747093c46992e5ac4`, base certificada `327d6c739a55e2f6b5da89f1ec125a24013eb345`. Se conservaron cinco commits T2 previos y se retomó el trabajo sin reiniciar. Cambios locales actuales: revocación concurrente determinista sobre PostgreSQL, mayor cobertura de importación, contratos históricos actualizados, correcciones de tipos y workflow con integración T2. Los contratos estáticos R2B-F1/R2C/I3 pasan 69/69; ESLint focalizado pasa. Typecheck completo aún falla (9 diagnósticos); pruebas nuevas PostgreSQL no ejecutadas; carrera de etiquetas, XLSX sintético y huecos D-3 siguen pendientes. Sin push, CI remoto, migraciones, despliegue, bases persistentes ni inicio de T3. Estado detallado y matriz: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md`. La contradicción del skill `deligo-closeout` sobre FULL_CONTEXT versionado sigue registrada y no se modificó el skill.
 
 
 === LATEST CURRENT HANDOFF — T0 + T1 IMPLEMENTED LOCALLY ON codex/estabilizacion-final (NOT PUSHED, NOT DEPLOYED, NOT CERTIFIED) · ELIGIBILITY MATRIX

@@ -7,7 +7,8 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 
 const INVENTARIO = readFileSync(resolve(import.meta.dir, "inventario-tab.tsx"), "utf8")
-const CAJA = readFileSync(resolve(import.meta.dir, "caja-tab.tsx"), "utf8")
+const CAJA = readFileSync(resolve(import.meta.dir, "caja-tab.tsx"), "utf8").replace(/\r\n/g, "\n")
+const DEVOLUCIONES = readFileSync(resolve(import.meta.dir, "caja-devoluciones.tsx"), "utf8")
 
 describe("P2-T56-R2C — Inventario: a product with variants collapses into ONE row (section 15)", () => {
   test("both the desktop table and mobile card branch on p.variantes.length before rendering per-variant summaries", () => {
@@ -106,7 +107,7 @@ describe("P2-T56-R2C — Caja: cart line identity and price authority (sections 
 
   test("cart and detail views render the variant name alongside the product name, never the variant name alone", () => {
     expect(CAJA).toContain('{line.nombre}{line.varianteNombre ? ` — ${line.varianteNombre}` : ""}')
-    expect(CAJA).toContain('{item.nombre}{item.varianteNombre ? ` — ${item.varianteNombre}` : ""}')
+    expect(DEVOLUCIONES).toContain('item.varianteNombre ? `${item.nombre} — ${item.varianteNombre}` : item.nombre')
   })
 })
 

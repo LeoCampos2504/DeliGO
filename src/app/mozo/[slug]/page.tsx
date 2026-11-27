@@ -81,7 +81,7 @@ function MozoScannerContent({ params }: { params: Promise<{ slug: string }> }) {
   })
 
   // Fetch mozo info
-  const { data: mozo, isLoading: mozoLoading } = useQuery<MozoInfo>({
+  const { data: mozo, isLoading: mozoLoading } = useQuery<MozoInfo | null>({
     queryKey: ["mozo-scan", mozoCodigo, negocio?.id],
     queryFn: async () => {
       if (!mozoCodigo || !negocio?.id) return null

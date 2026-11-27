@@ -1,6 +1,6 @@
-## LATEST UPDATE — T2 EN CURSO, NO CERRADO
+## LATEST UPDATE — T2 REANUDADA, EN CURSO, NO CERRADA (2026-11-26)
 
-Rama `codex/estabilizacion-final`, base inicial `392d920a`; commits locales `a995d894`, `84a29bf4`, `8f02a377`, `f63c8365`, `a2306f47`. T2 incompleta: cobertura y verificaciones pendientes; sin push, CI remoto ni despliegue. Informe y matriz: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md`. C5 integrado, pruebas técnicas parcialmente preparadas, typecheck aún fallido, y ventanas de revocación de proveedor y etiqueta requieren seguimiento. T1 sigue implementada localmente sin certificación. Próximo paso: continuar T2, no iniciar T3. La contradicción de `deligo-closeout` sobre FULL_CONTEXT versionado sigue pendiente.
+Worktree `C:\Leo Campos\Trabajo\deligo-estabilizacion`, rama `codex/estabilizacion-final`, HEAD recuperado `2356969316b81c8f9456ac9747093c46992e5ac4`, base certificada `327d6c739a55e2f6b5da89f1ec125a24013eb345`. Cinco commits T2 previos conservados; no había commits posteriores al HEAD al reanudar. R2B-F1/R2C/I3 estáticos: 69/69; ESLint focalizado PASS. Typecheck completo: 9 diagnósticos restantes. Pruebas ampliadas de revocación concurrente e importación están escritas pero no ejecutadas contra PostgreSQL. La carrera de etiquetas pendientes sigue sin resolver/certificar; D-3 aún tiene huecos, XLSX sintético no probado en parser XML compatible y typecheck no está limpio. Workflow usa PostgreSQL 16 efímero, sin deploy; CI remoto pendiente. Sin push, migraciones, base persistente ni T3. Informe vigente: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md`. La contradicción de `deligo-closeout` sobre el contexto completo versionado sigue pendiente.
 
 # DELIGO — FULL CROSS-CHAT CONTEXT (LATEST)
 

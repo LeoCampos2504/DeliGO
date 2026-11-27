@@ -1,6 +1,6 @@
 ## Actualización T2 — EN CURSO, NO CERRADO
 
-Rama `codex/estabilizacion-final`, base inicial `392d920a`; commits locales `a995d894`, `84a29bf4`, `8f02a377`, `f63c8365`, `a2306f47`. T2 incompleta: cobertura y verificaciones pendientes; sin push, CI remoto ni despliegue. Informe y matriz: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md`. C5 integrado, pruebas técnicas parcialmente preparadas, typecheck aún fallido, y ventanas de revocación de proveedor y etiqueta requieren seguimiento. T1 sigue implementada localmente sin certificación. Próximo paso: continuar T2, no iniciar T3. La contradicción de `deligo-closeout` sobre FULL_CONTEXT versionado sigue pendiente.
+Reanudación 2026-11-26: worktree `C:\Leo Campos\Trabajo\deligo-estabilizacion`, rama `codex/estabilizacion-final`, HEAD recuperado `2356969316b81c8f9456ac9747093c46992e5ac4`, base certificada `327d6c739a55e2f6b5da89f1ec125a24013eb345`. Sin commits posteriores al HEAD al reanudar; cinco commits T2 previos conservados. Tests estáticos históricos R2B-F1/R2C/I3 69/69 y ESLint focalizado PASS; typecheck global aún tiene 9 diagnósticos. La revocación concurrente y pruebas de importación ampliadas están escritas, aún pendientes de PostgreSQL CI. No se declara cerrada T2: sigue sin resolver/probar la carrera de etiquetas; faltan huecos D-3, XLSX sintético y typecheck limpio. Sin push, CI remoto, migraciones, despliegue ni T3. Matriz actualizada: `codex-reports/T2_SEGURIDAD_SALUD_TECNICA.md`. La contradicción de `deligo-closeout` sobre FULL_CONTEXT versionado sigue pendiente.
 
 # ROADMAP — DeliGO
 
