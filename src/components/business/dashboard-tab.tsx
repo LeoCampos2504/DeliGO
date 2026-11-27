@@ -25,6 +25,7 @@ import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { cn, formatPrice, timeAgo } from "@/lib/utils"
+import { isAuthRejected, pollUnlessAuthRejected, retryUnlessAuthRejected, throwIfAuthRejected } from "@/lib/auth-rejected-query"
 
 // ============================================
 // Types
@@ -448,14 +449,20 @@ function DestacadoSection({ negocioId, destacadoHasta, promocionado, colorPrinci
   const [customDias, setCustomDias] = useState(0)
 
   // Fetch existing solicitudes
+  // T3: the owner route now validates the owner's own family cookie (no 401 with an employee session in the same
+  // browser). A 401/403 is a definitive rejection: polling and focus refetch stop for this business key instead of
+  // repeating the rejected request every 30 s (see auth-rejected-query.ts).
   const { data: solicitudesData } = useQuery({
     queryKey: ["destacado-solicitudes", negocioId],
     queryFn: async () => {
       const res = await fetch("/api/destacado-solicitud")
+      throwIfAuthRejected(res)
       if (!res.ok) return { solicitudes: [] }
       return res.json()
     },
-    refetchInterval: 30000,
+    refetchInterval: (query) => pollUnlessAuthRejected(query.state.error, 30000),
+    refetchOnWindowFocus: (query) => !isAuthRejected(query.state.error),
+    retry: retryUnlessAuthRejected,
   })
 
   const pendingSolicitud = solicitudesData?.solicitudes?.find(

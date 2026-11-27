@@ -29,6 +29,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils"
 import { useNotificationStore, type NotificationItem } from "@/store/notification-store"
 import { useAuthStore } from "@/store/auth-store"
+import { isAuthRejected, pollUnlessAuthRejected, retryUnlessAuthRejected, throwIfAuthRejected } from "@/lib/auth-rejected-query"
 
 // ============================================
 // Navigation helper — maps notification → tab
@@ -184,6 +185,40 @@ export function notificationFeedFor(operational: boolean): "operativo" | "cuenta
   return operational ? "operativo" : "cuenta"
 }
 
+// T3 (sesiones simultáneas / 116 HTTP 401) — what each bell query is bound to.
+// - Personal bells declare their family (`actorFamily`, the tab's own user type) so the
+//   server validates that family's cookie even when an operational session shares the
+//   browser (before: 401 every 10 s for the owner).
+// - The query key carries the actor (family + id), so a late response started by a
+//   previous actor is stored under ITS key and never shown for the current one.
+// - A 401/403 is a definitive rejection for that actor: the bell stops polling and
+//   focus refetches for it (no retry loop), and its badge is cleared. A new actor (new
+//   key) or a remount starts again. Network/5xx errors keep the normal polling.
+export type NotificationBellFamily = "cliente" | "negocio" | "repartidor"
+
+/** Query param that names the bell's session family (empty for the operational feed). */
+export function notificationFamilyQuery(feed: "operativo" | "cuenta", family: NotificationBellFamily | null): string {
+  return feed === "cuenta" && family ? `&actorFamily=${family}` : ""
+}
+
+/** Actor a bell's queries belong to, or null when the bell must not poll at all. */
+export function notificationActorKey(params: {
+  operational: boolean
+  user: { id: string; type: string } | null
+}): string | null {
+  if (params.operational) return "cuenta_operativa"
+  const { user } = params
+  if (!user) return null
+  if (user.type !== "cliente" && user.type !== "negocio" && user.type !== "repartidor") return null
+  return `${user.type}:${user.id}`
+}
+
+async function readNotificationsResponse<T>(res: Response, fallback: T): Promise<T> {
+  throwIfAuthRejected(res)
+  if (!res.ok) return fallback
+  return res.json() as Promise<T>
+}
+
 interface NotificationBellProps {
   /** Called when a notification is clicked — should navigate to the target tab */
   onNavigate?: (tab: string, notif: NotificationItem) => void
@@ -199,42 +234,59 @@ export function NotificationBell({ onNavigate, operational = false }: Notificati
   // F4-A fix: name the session this bell reads, so an employee cookie on the
   // same browser never replaces the owner's feed (and vice versa).
   const feed = notificationFeedFor(operational)
+  // T3: the actor this bell belongs to (null -> no polling) and its declared family.
+  const actorKey = notificationActorKey({ operational, user })
+  const family = !operational && user && actorKey ? (user.type as NotificationBellFamily) : null
+  const familyQuery = notificationFamilyQuery(feed, family)
 
   // Fetch unread count
-  const { data: notifData } = useQuery({
-    queryKey: ["notifications-unread", feed],
+  const { data: notifData, error: unreadError } = useQuery({
+    queryKey: ["notifications-unread", feed, actorKey],
     queryFn: async () => {
-      const res = await fetch(`/api/notificaciones?feed=${feed}&limit=1&unread=true`)
-      if (!res.ok) return { noLeidos: 0 }
-      return res.json() as Promise<{ noLeidos: number }>
+      const res = await fetch(`/api/notificaciones?feed=${feed}${familyQuery}&limit=1&unread=true`)
+      return readNotificationsResponse(res, { noLeidos: 0 })
     },
-    refetchInterval: 10000, // Poll every 10s
-    enabled: operational || (!!user && (user.type === "cliente" || user.type === "negocio" || user.type === "repartidor")),
+    refetchInterval: (query) => pollUnlessAuthRejected(query.state.error, 10000), // Poll every 10s
+    refetchOnWindowFocus: (query) => !isAuthRejected(query.state.error),
+    retry: retryUnlessAuthRejected,
+    enabled: actorKey !== null,
   })
 
   // Fetch full notification list (only when popover is open)
   const { data: listData, isLoading: listLoading } = useQuery({
-    queryKey: ["notifications-list", feed],
+    queryKey: ["notifications-list", feed, actorKey],
     queryFn: async () => {
-      const res = await fetch(`/api/notificaciones?feed=${feed}&limit=50`)
-      if (!res.ok) return { notificaciones: [] as NotificationItem[], noLeidos: 0 }
-      return res.json() as Promise<{ notificaciones: NotificationItem[]; noLeidos: number }>
+      const res = await fetch(`/api/notificaciones?feed=${feed}${familyQuery}&limit=50`)
+      return readNotificationsResponse(res, { notificaciones: [] as NotificationItem[], noLeidos: 0 })
     },
-    enabled: isOpen && (operational || !!user),
+    retry: retryUnlessAuthRejected,
+    enabled: isOpen && actorKey !== null && !isAuthRejected(unreadError),
     staleTime: 0,
   })
+
+  // T3: a new actor (or none) never inherits the previous actor's badge, and a
+  // rejected credential clears it instead of showing a stale count. Declared
+  // BEFORE the sync below so, on the same render, the reset runs first and the
+  // current actor's own count (if cached) is applied right after it.
+  useEffect(() => {
+    setNoLeidos(0)
+  }, [actorKey, setNoLeidos])
 
   // Sync unread count
   useEffect(() => {
     if (notifData?.noLeidos !== undefined) {
       setNoLeidos(notifData.noLeidos)
     }
-  }, [notifData, setNoLeidos])
+  }, [notifData, actorKey, setNoLeidos])
+
+  useEffect(() => {
+    if (isAuthRejected(unreadError)) setNoLeidos(0)
+  }, [unreadError, setNoLeidos])
 
   // Mark single as read
   const markAsRead = useCallback(async (notifId: string) => {
     try {
-      const res = await fetch(`/api/notificaciones?feed=${feed}`, {
+      const res = await fetch(`/api/notificaciones?feed=${feed}${familyQuery}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark_read", notificationId: notifId }),
@@ -245,12 +297,12 @@ export function NotificationBell({ onNavigate, operational = false }: Notificati
         queryClient.invalidateQueries({ queryKey: ["notifications-list"] })
       }
     } catch {}
-  }, [setNoLeidos, queryClient, feed])
+  }, [setNoLeidos, queryClient, feed, familyQuery])
 
   // Mark all as read
   const markAllRead = useCallback(async () => {
     try {
-      const res = await fetch(`/api/notificaciones?feed=${feed}`, {
+      const res = await fetch(`/api/notificaciones?feed=${feed}${familyQuery}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "mark_all_read" }),
@@ -260,7 +312,7 @@ export function NotificationBell({ onNavigate, operational = false }: Notificati
         queryClient.invalidateQueries({ queryKey: ["notifications-list"] })
       }
     } catch {}
-  }, [setNoLeidos, queryClient, feed])
+  }, [setNoLeidos, queryClient, feed, familyQuery])
 
   // Handle notification click — navigate + mark as read.
   // P2-T44-R1P2 (G1): precedencia de navegación —
