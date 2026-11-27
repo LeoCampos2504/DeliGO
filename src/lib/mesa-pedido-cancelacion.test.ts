@@ -1064,27 +1064,67 @@ describe("23-A1 — cancelación de pedidos de mesa (integración real)", () => 
       expect(eventos[0].nota).toBe(r1.kind === "ok" ? "Intento A" : "Intento B")
     })
 
-    test("2. cancelación concurrente contra un avance de estado legítimo: nunca ambos ganan", async () => {
+    test("2. cancelación concurrente contra un avance de estado legítimo: nunca ambos ganan sobre el mismo estado", async () => {
       const mesaId = await crearMesa(negocioId)
       const ocupacionId = await crearOcupacion(negocioId, mesaId)
       const pedidoId = await crearPedidoMesa({ negocioId, mesaId, ocupacionMesaId: ocupacionId, estado: "recibido" })
+      const actor = actorNegocioAdmin(negocioId)
 
       const [cancelacion, avance] = await Promise.all([
-        cancelarPedidoMesa({ pedidoId, motivo: "Cancelación concurrente", actor: actorNegocioAdmin(negocioId) }),
+        cancelarPedidoMesa({ pedidoId, motivo: "Cancelación concurrente", actor }),
         db.pedido.updateMany({
           where: { id: pedidoId, negocioId, metodoEntrega: "mesa", estado: "recibido" },
           data: { estado: "preparando" },
         }),
       ])
 
-      const pedido = await db.pedido.findUniqueOrThrow({ where: { id: pedidoId } })
+      // T3 (CI run 45925393874): "preparando" es cancelable (ESTADOS_PENDIENTES_MESA, caso F.1), así que si el avance
+      // confirma ANTES de que la cancelación lea el pedido, la cancelación parte de "preparando" y su CAS prospera: es
+      // una ejecución en serie legítima (avance y después cancelación), no un doble triunfo. Lo prohibido es que ambos
+      // prosperen sobre el MISMO estado base ("recibido"), que la cancelación pise un avance que no vio o que el
+      // pedido avance después de cancelado. Resultados válidos, y sólo estos:
+      //   A) cancela primero:  cancelación ok desde "recibido",   avance 0 → cancelado
+      //   B) avanza primero:   cancelación ok desde "preparando", avance 1 → cancelado
+      //   C) avanza primero con la cancelación ya en curso: conflicto, avance 1 → preparando, sin evento
+      expect(["ok", "conflict"]).toContain(cancelacion.kind)
+      expect([0, 1]).toContain(avance.count)
+
+      const [pedido, eventos] = await Promise.all([
+        db.pedido.findUniqueOrThrow({ where: { id: pedidoId } }),
+        db.pedidoEvento.findMany({ where: { pedidoId } }),
+      ])
       if (cancelacion.kind === "ok") {
-        expect(avance.count).toBe(0)
+        // Nunca ambos desde "recibido": el estado anterior de la cancelación es exactamente el que dejó el avance.
+        expect(cancelacion.estadoAnterior).toBe(avance.count === 1 ? "preparando" : "recibido")
         expect(pedido.estado).toBe("cancelado")
+        expect(pedido.canceladoPor).toBe(actor.type)
+        expect(pedido.canceladoMotivo).toBe("Cancelación concurrente")
+        // Una única cancelación efectiva, auditada con el actor y el estado anterior reales.
+        expect(eventos).toHaveLength(1)
+        expect(eventos[0]).toMatchObject({ estado: "cancelado", estadoAnterior: cancelacion.estadoAnterior, userId: actor.actorId, userType: actor.type, nota: "Cancelación concurrente" })
       } else {
         expect(avance.count).toBe(1)
         expect(pedido.estado).toBe("preparando")
-        expect(cancelacion.kind).toBe("conflict")
+        expect(pedido.canceladoPor).toBeNull()
+        expect(pedido.canceladoFecha).toBeNull()
+        expect(eventos).toHaveLength(0)
+      }
+
+      // Un pedido cancelado nunca vuelve a avanzar (mismo CAS por estado esperado que usan los avances).
+      if (pedido.estado === "cancelado") {
+        for (const desde of ["recibido", "preparando", "listo_para_retirar"] as const) {
+          const tardio = await db.pedido.updateMany({
+            where: { id: pedidoId, negocioId, metodoEntrega: "mesa", estado: desde },
+            data: { estado: "entregado" },
+          })
+          expect(tardio.count).toBe(0)
+        }
+        // Y una segunda cancelación no duplica el evento ni sobrescribe el original.
+        expect((await cancelarPedidoMesa({ pedidoId, motivo: "Segundo intento", actor })).kind).toBe("invalid_estado")
+        const final = await db.pedido.findUniqueOrThrow({ where: { id: pedidoId } })
+        expect(final.estado).toBe("cancelado")
+        expect(final.canceladoMotivo).toBe("Cancelación concurrente")
+        expect(await db.pedidoEvento.count({ where: { pedidoId } })).toBe(1)
       }
     })
 
