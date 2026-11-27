@@ -1424,3 +1424,117 @@ export async function registrarStockCorreccionVenta(
     })
   }
 }
+
+// ---------------------------------------------------------------------------
+// T7-F1 — retiros personales de mercadería (salida NO comercial desde Caja)
+// ---------------------------------------------------------------------------
+// Mismo criterio que una venta de Caja (R3A-I3): las líneas repetidas se suman por clave, cada clave controlada se
+// valida contra el DISPONIBLE (físico − reservas ACTIVA, leído en ESTA tx Serializable) y nunca queda negativa; las
+// claves sin control de stock no se mueven ni se activan. Un movimiento RETIRO_PERSONAL por clave, vinculado al
+// retiro; el reingreso de una devolución/anulación es RETIRO_PERSONAL_REINGRESO vinculado a su devolución. Nunca toca
+// reservas ni lee el modo de reservas.
+
+export const MOVIMIENTO_TIPO_RETIRO_PERSONAL = "RETIRO_PERSONAL"
+export const MOVIMIENTO_TIPO_RETIRO_PERSONAL_REINGRESO = "RETIRO_PERSONAL_REINGRESO"
+
+export interface RetiroStockPlanItem extends StockKeyRef {
+  cantidad: number
+  stockAntes: number
+  stockDespues: number
+}
+
+/** Valida un retiro personal contra el disponible por clave agregada. No escribe nada. */
+export async function planificarStockRetiroPersonal(
+  tx: Tx,
+  params: { negocioId: string; lines: ReadonlyArray<VentaCajaStockLine> }
+): Promise<RetiroStockPlanItem[]> {
+  const controlled = params.lines.filter((line) => line.controlStock)
+  const labels = new Map(controlled.map((line) => [stockKey(line.productoId, line.productoVarianteId), line.nombre]))
+  const plan: RetiroStockPlanItem[] = []
+  for (const total of agregarCantidadesPorClave(controlled)) {
+    const key = { productoId: total.productoId, productoVarianteId: total.productoVarianteId }
+    const label = labels.get(stockKey(key.productoId, key.productoVarianteId)) ?? "Producto"
+    const availability = await leerDisponibilidadStock(tx, { negocioId: params.negocioId, key })
+    if (!availability) throw new StockAuthorityNotFoundError()
+    if (!availability.controlStock) continue
+    const details = {
+      productoId: key.productoId,
+      productoVarianteId: key.productoVarianteId,
+      solicitado: total.cantidad,
+      stockFisico: availability.physical,
+      reservasActivas: availability.activeReserved,
+      disponible: availability.available,
+    }
+    if (total.cantidad > availability.available) {
+      if (availability.activeReserved > 0) {
+        throw new StockReservedForOrdersError(
+          `"${label}": hay ${availability.physical} en stock pero ${availability.activeReserved} están reservadas para pedidos pendientes, así que ${availability.available === 0 ? "no quedan unidades disponibles para retirar" : `sólo quedan ${availability.available} disponibles para retirar`} (pediste ${total.cantidad}).`,
+          details
+        )
+      }
+      throw new StockPhysicalInsufficientError(`"${label}" no tiene stock suficiente para el retiro`, details)
+    }
+    const next = resolveNextStock(availability.physical, "SALIDA", total.cantidad)
+    if (!next.ok) throw new StockPhysicalInsufficientError(`"${label}" no tiene stock suficiente para el retiro`, details)
+    plan.push({ ...key, cantidad: total.cantidad, stockAntes: availability.physical, stockDespues: next.nextStock })
+  }
+  return plan
+}
+
+/** Aplica el plan del retiro: un descuento y un movimiento RETIRO_PERSONAL por clave, en la tx que creó el retiro. */
+export async function registrarStockRetiroPersonal(
+  tx: Tx,
+  params: { negocioId: string; retiroPersonalId: string; plan: ReadonlyArray<RetiroStockPlanItem> }
+): Promise<void> {
+  for (const item of params.plan) {
+    if (item.productoVarianteId) await tx.productoVariante.update({ where: { id: item.productoVarianteId }, data: { stockCantidad: item.stockDespues } })
+    else await tx.producto.update({ where: { id: item.productoId }, data: { stockCantidad: item.stockDespues } })
+    await tx.movimientoInventario.create({
+      data: {
+        negocioId: params.negocioId,
+        productoId: item.productoId,
+        productoVarianteId: item.productoVarianteId,
+        tipo: MOVIMIENTO_TIPO_RETIRO_PERSONAL,
+        cantidad: item.cantidad,
+        stockAntes: item.stockAntes,
+        stockDespues: item.stockDespues,
+        motivo: "Retiro personal",
+        retiroPersonalId: params.retiroPersonalId,
+      },
+    })
+  }
+}
+
+export type ResultadoReingresoRetiro = "REINGRESADO" | "SIN_CONTROL_STOCK" | "PRODUCTO_NO_DISPONIBLE"
+
+/**
+ * Reingresa las unidades devueltas de UNA línea de un retiro que movió stock. Si la clave ya no existe o hoy no
+ * tiene control de stock, no se mueve nada (nunca se crea stock que no se descontó).
+ */
+export async function reingresarStockRetiroPersonal(
+  tx: Tx,
+  params: { negocioId: string; devolucionRetiroId: string; key: StockKeyRef | null; cantidad: number; motivo: string }
+): Promise<{ resultado: ResultadoReingresoRetiro; movimientoInventarioId: string | null }> {
+  const disponibilidad = params.key ? await leerDisponibilidadStock(tx, { negocioId: params.negocioId, key: params.key }) : null
+  if (!params.key || !disponibilidad) return { resultado: "PRODUCTO_NO_DISPONIBLE", movimientoInventarioId: null }
+  if (!disponibilidad.controlStock) return { resultado: "SIN_CONTROL_STOCK", movimientoInventarioId: null }
+  const next = resolveNextStock(disponibilidad.physical, "ENTRADA", params.cantidad)
+  if (!next.ok) throw new StockMovementInvalidError(next.error)
+  if (params.key.productoVarianteId) await tx.productoVariante.update({ where: { id: params.key.productoVarianteId }, data: { stockCantidad: next.nextStock } })
+  else await tx.producto.update({ where: { id: params.key.productoId }, data: { stockCantidad: next.nextStock } })
+  const movimiento = await tx.movimientoInventario.create({
+    data: {
+      negocioId: params.negocioId,
+      productoId: params.key.productoId,
+      productoVarianteId: params.key.productoVarianteId,
+      tipo: MOVIMIENTO_TIPO_RETIRO_PERSONAL_REINGRESO,
+      cantidad: params.cantidad,
+      stockAntes: disponibilidad.physical,
+      stockDespues: next.nextStock,
+      motivo: params.motivo,
+      devolucionRetiroId: params.devolucionRetiroId,
+    },
+    select: { id: true },
+  })
+  return { resultado: "REINGRESADO", movimientoInventarioId: movimiento.id }
+}

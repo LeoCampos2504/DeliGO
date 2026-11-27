@@ -31,6 +31,7 @@ import {
   Truck,
   ClipboardList,
   Tag,
+  PackageMinus,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -69,6 +70,7 @@ import { CajaCambiosConfig } from "@/components/business/caja-cambios-config"
 import { OwnerCajaEgresos, ResumenEgresosHoy, type EgresosHoy } from "@/components/business/owner-caja-egresos"
 import { OwnerProveedores } from "@/components/business/owner-proveedores"
 import { OwnerCompras, comprasQueryKey } from "@/components/business/owner-compras"
+import { RetiroPersonalDialog, retiroContextoQueryKey, useRetiroContexto } from "@/components/business/caja-retiro-personal"
 import {
   addCartLine,
   cartItemCount,
@@ -381,6 +383,11 @@ export interface CajaVenderSource {
   ventasHoyQueryKey: readonly unknown[] | null
   /** Session/area lost (401/403): the host page decides where to go. */
   onAccessLost?: (status: number) => void
+  /**
+   * T7-F1: base of the personal-withdrawal endpoints (POST + /contexto). The «Retiro personal» option appears in
+   * «Cobrar» only when the server says this person may register withdrawals. It is NOT a payment method.
+   */
+  retirosUrl?: string | null
 }
 
 interface OwnerSaleAssignment {
@@ -422,6 +429,7 @@ export function ownerCajaSource(negocioId: string): CajaVenderSource {
     categoriasQueryKey: ["negocio-categorias", negocioId],
     ventasUrl: "/api/negocio/caja/ventas",
     ventasHoyQueryKey: ["negocio-caja-ventas-hoy", negocioId],
+    retirosUrl: "/api/negocio/caja/retiros-personales",
   }
 }
 
@@ -439,6 +447,9 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment,
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [successSale, setSuccessSale] = useState<VentaResumen | null>(null)
+  // T7-F1: personal withdrawal of the SAME cart (never a sale; its own endpoint and rules).
+  const [retiroOpen, setRetiroOpen] = useState(false)
+  const retiroContexto = useRetiroContexto(source.retirosUrl, !seleccion)
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -1009,6 +1020,27 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment,
           onClose={() => setCheckoutOpen(false)}
           onConfirm={(metodo) => saleMutation.mutate(metodo)}
           loading={saleMutation.isPending}
+          onRetiroPersonal={retiroContexto.data && source.retirosUrl && !retryingPendingAttempt && !pendingAttempt ? () => { setCheckoutOpen(false); setRetiroOpen(true) } : undefined}
+        />
+      )}
+
+      {retiroOpen && retiroContexto.data && source.retirosUrl && (
+        <RetiroPersonalDialog
+          retirosUrl={source.retirosUrl}
+          cart={cart}
+          contexto={retiroContexto.data}
+          onClose={() => setRetiroOpen(false)}
+          onAccessLost={source.onAccessLost}
+          onPreciosDesactualizados={() => { setRetiroOpen(false); void queryClient.invalidateQueries({ queryKey: source.productosQueryKey }) }}
+          onRegistrado={(retiro, replayed) => {
+            // The cart is cleared ONLY after the server confirmed the withdrawal.
+            setRetiroOpen(false)
+            setMobileCartOpen(false)
+            setCart([])
+            toast.success(replayed ? "El retiro ya estaba registrado: no se registró dos veces." : `Retiro personal registrado para ${retiro.beneficiarioNombre} · ${formatPrice(retiro.valorComercial)}. No ingresó dinero a Caja.`)
+            void queryClient.invalidateQueries({ queryKey: source.productosQueryKey })
+            void queryClient.invalidateQueries({ queryKey: retiroContextoQueryKey(source.retirosUrl ?? "") })
+          }}
         />
       )}
 
@@ -1209,6 +1241,7 @@ function CheckoutDialog({
   onClose,
   onConfirm,
   loading,
+  onRetiroPersonal,
 }: {
   initialMetodo?: MetodoPagoVenta
   lockedMetodo?: MetodoPagoVenta
@@ -1216,6 +1249,8 @@ function CheckoutDialog({
   onClose: () => void
   onConfirm: (metodo: MetodoPagoVenta) => void
   loading: boolean
+  /** T7-F1: shown next to the payment methods, but it opens the separate personal-withdrawal form. */
+  onRetiroPersonal?: () => void
 }) {
   const [metodo, setMetodo] = useState<MetodoPagoVenta>(initialMetodo)
   return (
@@ -1235,6 +1270,18 @@ function CheckoutDialog({
             <MetodoButton label="Transferencia" icon={<CreditCard className="h-4 w-4" />} active={metodo === "TRANSFERENCIA"} disabled={Boolean(lockedMetodo && lockedMetodo !== "TRANSFERENCIA")} onClick={() => setMetodo("TRANSFERENCIA")} />
             <MetodoButton label="Otro" icon={<Receipt className="h-4 w-4" />} active={metodo === "OTRO"} disabled={Boolean(lockedMetodo && lockedMetodo !== "OTRO")} onClick={() => setMetodo("OTRO")} />
           </div>
+          {onRetiroPersonal && !lockedMetodo && (
+            <button
+              type="button"
+              data-testid="checkout-retiro-personal"
+              onClick={onRetiroPersonal}
+              disabled={loading}
+              className="flex w-full items-center gap-2 rounded-xl border border-dashed border-amber-400 px-3 py-2.5 text-left text-sm font-semibold text-amber-900 dark:border-amber-700 dark:text-amber-200"
+            >
+              <PackageMinus className="h-4 w-4 shrink-0" />
+              <span>Retiro personal<span className="block text-xs font-normal opacity-80">Mercadería que sale sin pago (empleado, familiar o dueño)</span></span>
+            </button>
+          )}
           {lockedMetodo && <p className="text-xs text-muted-foreground">El reintento conserva el mismo medio y destino para evitar registrar la venta dos veces.</p>}
           <Button
             className="w-full h-11 rounded-xl font-bold"

@@ -1,0 +1,245 @@
+"use client"
+
+// ============================================
+// T7-F1 — Caja: formulario de RETIRO PERSONAL de mercadería (dueño y cajero)
+// ============================================
+// Se abre desde «Cobrar» con el MISMO carrito de la venta (productos, variantes y cantidades no se vuelven a elegir).
+// Visualmente está junto a los medios de pago, pero NO es un medio de pago: envía a su propio endpoint, que registra
+// una salida no comercial de mercadería (sin venta, sin cobro, sin dinero). El servidor calcula los valores; esta
+// pantalla sólo muestra el total que ya veía el cajero y lo envía para detectar precios desactualizados.
+// Idempotencia: una clave por intento; se reutiliza mientras el contenido no cambie (un reintento tras un error de
+// red nunca registra dos veces). El carrito se vacía sólo después de una confirmación exitosa.
+
+import { useMemo, useState } from "react"
+import { useQuery } from "@tanstack/react-query"
+import { PackageMinus } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { cn, formatPrice } from "@/lib/utils"
+import { cartLineSubtotal, cartTotal, type CartLine } from "@/lib/caja-venta"
+import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
+import {
+  ETIQUETA_BENEFICIARIO,
+  FAMILIAR_NOMBRE_MAX,
+  limpiarNombreFamiliar,
+  normalizarNombreFamiliar,
+  RETIRO_AVISO_SIN_DINERO,
+  RETIRO_OBSERVACIONES_MAX,
+  type BeneficiarioTipo,
+} from "@/lib/retiros-personales"
+
+export interface RetiroContexto {
+  habilitado: boolean
+  propioEmpleadoId?: string | null
+  empleados: Array<{ id: string; nombre: string }>
+  familiares: Array<{ id: string; nombre: string }>
+  dueno: { nombre: string } | null
+}
+
+export const retiroContextoQueryKey = (retirosUrl: string) => ["caja-retiro-contexto", retirosUrl] as const
+
+/** Contexto del formulario (permiso + beneficiarios). Sin permiso o sin endpoint → la opción no aparece. */
+export function useRetiroContexto(retirosUrl: string | null | undefined, enabled: boolean) {
+  return useQuery<RetiroContexto | null>({
+    queryKey: retiroContextoQueryKey(retirosUrl ?? ""),
+    enabled: Boolean(retirosUrl) && enabled,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const res = await fetch(`${retirosUrl}/contexto`, { cache: "no-store" })
+      if (!res.ok) return null
+      const json = (await res.json().catch(() => null)) as (RetiroContexto & { ok?: boolean }) | null
+      return json?.habilitado ? json : null
+    },
+  })
+}
+
+export interface RetiroRegistrado {
+  id: string
+  beneficiarioNombre: string
+  valorComercial: number
+  cantidadLineas: number
+}
+
+type Seleccion = { tipo: BeneficiarioTipo; empleadoId: string; familiarId: string; nuevoFamiliar: string }
+
+/** Cuerpo del POST (sin precios ni costos). Puro para poder probarlo. */
+export function cuerpoRetiro(cart: ReadonlyArray<CartLine>, sel: Seleccion, observaciones: string) {
+  const beneficiario =
+    sel.tipo === "EMPLEADO" ? { tipo: "EMPLEADO", empleadoId: sel.empleadoId }
+    : sel.tipo === "DUENO" ? { tipo: "DUENO" }
+    : sel.familiarId ? { tipo: "FAMILIAR", familiarId: sel.familiarId }
+    : { tipo: "FAMILIAR", nuevoNombre: limpiarNombreFamiliar(sel.nuevoFamiliar) }
+  return {
+    beneficiario,
+    items: cart.map((l) => ({ productoId: l.productoId, varianteId: l.varianteId ?? undefined, cantidad: l.cantidad })),
+    observaciones: observaciones.trim() || null,
+    totalMostrado: cartTotal(cart),
+    confirmado: true,
+  }
+}
+
+export function RetiroPersonalDialog({
+  retirosUrl,
+  cart,
+  contexto,
+  onClose,
+  onRegistrado,
+  onPreciosDesactualizados,
+  onAccessLost,
+}: {
+  retirosUrl: string
+  cart: ReadonlyArray<CartLine>
+  contexto: RetiroContexto
+  onClose: () => void
+  onRegistrado: (retiro: RetiroRegistrado, replayed: boolean) => void
+  onPreciosDesactualizados?: () => void
+  onAccessLost?: (status: number) => void
+}) {
+  const [sel, setSel] = useState<Seleccion>({ tipo: "EMPLEADO", empleadoId: contexto.propioEmpleadoId ?? "", familiarId: "", nuevoFamiliar: "" })
+  const [observaciones, setObservaciones] = useState("")
+  const [confirmo, setConfirmo] = useState(false)
+  const [enviando, setEnviando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // Clave del intento ligada al contenido exacto: el mismo contenido reintenta con la misma clave.
+  const [intento, setIntento] = useState<{ key: string; canonical: string } | null>(null)
+  const total = cartTotal(cart)
+
+  const familiarExistente = useMemo(() => {
+    const n = normalizarNombreFamiliar(sel.nuevoFamiliar)
+    return n ? contexto.familiares.find((f) => normalizarNombreFamiliar(f.nombre) === n) ?? null : null
+  }, [sel.nuevoFamiliar, contexto.familiares])
+
+  const beneficiarioListo =
+    sel.tipo === "DUENO" ? Boolean(contexto.dueno)
+    : sel.tipo === "EMPLEADO" ? Boolean(sel.empleadoId)
+    : Boolean(sel.familiarId) || (limpiarNombreFamiliar(sel.nuevoFamiliar).length > 0 && limpiarNombreFamiliar(sel.nuevoFamiliar).length <= FAMILIAR_NOMBRE_MAX)
+
+  async function confirmar() {
+    setError(null)
+    // Un nombre que ya existe reutiliza al familiar registrado (nunca se duplica por mayúsculas o acentos).
+    const seleccion = sel.tipo === "FAMILIAR" && !sel.familiarId && familiarExistente ? { ...sel, familiarId: familiarExistente.id } : sel
+    const body = cuerpoRetiro(cart, seleccion, observaciones)
+    const canonical = JSON.stringify(body)
+    const key = intento && intento.canonical === canonical ? intento.key : newIdempotencyKey()
+    setIntento({ key, canonical })
+    setEnviando(true)
+    try {
+      if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error("Sin conexión: el retiro no se registró. Conectate y volvé a confirmar.")
+      let res: Response
+      try {
+        res = await fetch(retirosUrl, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key }, body: canonical })
+      } catch {
+        throw new Error("No sabemos si el retiro se registró (falló la conexión). Confirmá de nuevo: si ya estaba registrado, no se duplica.")
+      }
+      const json = (await res.json().catch(() => ({}))) as { retiro?: RetiroRegistrado; error?: string; code?: string }
+      if (res.status === 401 || res.status === 403) onAccessLost?.(res.status)
+      if (res.ok && json.retiro) {
+        onRegistrado(json.retiro, res.headers.get("Idempotency-Replayed") === "true")
+        return
+      }
+      if (res.status >= 500) throw new Error("No sabemos si el retiro se registró. Confirmá de nuevo: si ya estaba registrado, no se duplica.")
+      setIntento(null) // rechazo definitivo: no se registró nada
+      if (json.code === "PRECIOS_CAMBIARON") onPreciosDesactualizados?.()
+      throw new Error(json.error ?? "No se pudo registrar el retiro.")
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  const tipos: BeneficiarioTipo[] = ["EMPLEADO", "FAMILIAR", "DUENO"]
+  return (
+    <Dialog open onOpenChange={(open) => !open && !enviando && onClose()}>
+      <DialogContent className="max-w-sm sm:max-w-md rounded-2xl max-h-[90vh] overflow-y-auto" data-testid="retiro-personal-dialog">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2"><PackageMinus className="h-5 w-5" /> Retiro personal</DialogTitle>
+          <DialogDescription className="text-amber-800 dark:text-amber-200 font-medium">{RETIRO_AVISO_SIN_DINERO}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 text-sm">
+          <div>
+            <p className="mb-1 text-xs font-semibold text-muted-foreground">¿Quién retira?</p>
+            <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Tipo de beneficiario">
+              {tipos.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  role="radio"
+                  aria-checked={sel.tipo === t}
+                  onClick={() => setSel((s) => ({ ...s, tipo: t }))}
+                  className={cn("min-h-11 rounded-xl border px-2 text-sm font-semibold", sel.tipo === t ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground")}
+                >
+                  {ETIQUETA_BENEFICIARIO[t]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {sel.tipo === "EMPLEADO" && (
+            <label className="block space-y-1">
+              <span className="text-xs font-semibold text-muted-foreground">Empleado</span>
+              <select data-testid="retiro-empleado" className="h-11 w-full rounded-xl border bg-background px-3" value={sel.empleadoId} onChange={(e) => setSel((s) => ({ ...s, empleadoId: e.target.value }))}>
+                <option value="">Elegí un empleado…</option>
+                {contexto.empleados.map((e) => <option key={e.id} value={e.id}>{e.nombre}{e.id === contexto.propioEmpleadoId ? " (vos)" : ""}</option>)}
+              </select>
+            </label>
+          )}
+
+          {sel.tipo === "FAMILIAR" && (
+            <div className="space-y-2">
+              {contexto.familiares.length > 0 && (
+                <label className="block space-y-1">
+                  <span className="text-xs font-semibold text-muted-foreground">Familiar registrado</span>
+                  <select data-testid="retiro-familiar" className="h-11 w-full rounded-xl border bg-background px-3" value={sel.familiarId} onChange={(e) => setSel((s) => ({ ...s, familiarId: e.target.value, nuevoFamiliar: "" }))}>
+                    <option value="">Agregar un familiar nuevo…</option>
+                    {contexto.familiares.map((f) => <option key={f.id} value={f.id}>{f.nombre}</option>)}
+                  </select>
+                </label>
+              )}
+              {!sel.familiarId && (
+                <label className="block space-y-1">
+                  <span className="text-xs font-semibold text-muted-foreground">Nombre del familiar nuevo</span>
+                  <Input data-testid="retiro-familiar-nuevo" value={sel.nuevoFamiliar} maxLength={FAMILIAR_NOMBRE_MAX} onChange={(e) => setSel((s) => ({ ...s, nuevoFamiliar: e.target.value }))} placeholder="Ej.: Ana Pérez" className="h-11 rounded-xl" />
+                  {familiarExistente && <span className="block text-xs text-muted-foreground">Ya está registrado como «{familiarExistente.nombre}»: se usará ese familiar.</span>}
+                </label>
+              )}
+            </div>
+          )}
+
+          {sel.tipo === "DUENO" && <p className="rounded-xl border px-3 py-2">Dueño: <span className="font-semibold">{contexto.dueno?.nombre ?? "—"}</span></p>}
+
+          <div className="rounded-xl border">
+            <ul className="divide-y text-xs">
+              {cart.map((l) => (
+                <li key={`${l.productoId}:${l.varianteId ?? ""}`} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                  <span className="min-w-0 truncate">{l.cantidad} × {l.nombre}{l.varianteNombre ? ` — ${l.varianteNombre}` : ""}</span>
+                  <span className="shrink-0 tabular-nums">{formatPrice(cartLineSubtotal(l))}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="flex items-center justify-between border-t px-3 py-2 font-semibold"><span>Valor comercial</span><span className="tabular-nums">{formatPrice(total)}</span></p>
+          </div>
+
+          <label className="block space-y-1">
+            <span className="text-xs font-semibold text-muted-foreground">Observaciones (opcional)</span>
+            <textarea data-testid="retiro-observaciones" className="min-h-16 w-full rounded-xl border bg-background px-3 py-2" maxLength={RETIRO_OBSERVACIONES_MAX} value={observaciones} onChange={(e) => setObservaciones(e.target.value)} />
+          </label>
+
+          <p className="text-xs text-muted-foreground">Si corresponde recuperar el valor, lo decide el dueño más tarde desde Administración.</p>
+
+          <label className="flex min-h-11 items-start gap-2 text-sm">
+            <input data-testid="retiro-confirmo" type="checkbox" className="mt-1 h-4 w-4" checked={confirmo} onChange={(e) => setConfirmo(e.target.checked)} />
+            <span>Confirmo que esta mercadería sale de Caja sin pago.</span>
+          </label>
+
+          {error && <p className="rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:bg-rose-950/40 dark:text-rose-200" role="alert">{error}</p>}
+
+          <Button data-testid="retiro-confirmar" className="w-full h-11 rounded-xl font-bold" disabled={enviando || !confirmo || !beneficiarioListo || cart.length === 0} onClick={() => void confirmar()}>
+            {enviando ? "Registrando…" : `Registrar retiro · ${formatPrice(total)}`}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
