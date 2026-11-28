@@ -1,5 +1,14 @@
 # CURRENT TEST AUTHORITY — POST-P2-T02-R6 (2026-09-13)
 
+## T7-F1 TESTING certification and Production rehearsal (2026-11-28)
+
+```text
+TESTING_DEPLOY=f0a04f9d · DeliGO Copy 50bc9e11 · only migration 71 · post-deploy CI 46091903435 SUCCESS
+MANUAL_CERTIFICATION=CLOSED (operator; detailed read-only verifier reviewed by ChatGPT): 7 withdrawals, 2 with inventory movement, 1 re-entry, 0 re-entries without a prior outflow, 0 returns above the withdrawn quantity, 0 withdrawals without audit, 4/4 owner notices, 0 unintended sales/outflows/financial movements, consistent decision history · one full physical return of 3 units (no cancellation recorded in the database; cancellation covered by the automated suites) · the operator first withdrew 3 units of a product that had 3 available and then adjusted its stock to 10 (legitimate test activity)
+PRODUCTION_REHEARSAL=PASS on an isolated copy of deligo-production-pre-t7-f1-20261128T015520Z.dump: only migration 71 applied, 71/71 checksums, 1777 original rows identical, 7 new tables empty, permission false for 6/6 employees, 0 constraints NOT VALID, 101/101 Prisma models read
+TOOLS=testing-verificacion-t7-f1.ps1 · testing-verificacion-t7-f1-detalle.ps1 · production-respaldo-t7-f1.ps1 · production-verificacion-t7-f1.ps1 (dry-run PASS on the migrated copy)
+```
+
 ## T7-F1 review corrections (2026-11-28, branch codex/retiros-personales)
 
 ```text

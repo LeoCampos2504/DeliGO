@@ -6,7 +6,18 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T7-F1 RETIROS PERSONALES · DESPLEGADA EN TESTING (f0a04f9d) · ESPERANDO CERTIFICACIÓN MANUAL FOCALIZADA (2026-11-28)
+=== LATEST HANDOFF — T7-F1 RETIROS PERSONALES · CERTIFICADA EN TESTING · ENSAYO DE PRODUCTION PASS · ESPERANDO AUTORIZACIÓN DE PUBLICACIÓN (2026-11-28)
+
+CANDIDATA=f0a04f9d0658de3c246b9cf641d8b482a17c2ef8 (testing-codex; CI 46090694070 y post-despliegue 46091903435 verdes) · main = 697dfd7e · Production intacto
+TESTING=CERTIFICADA (operador + revisión de ChatGPT del verificador detallado): 7 retiros, 2 con movimiento de inventario, 1 reingreso, 0 reingresos sin salida previa, 0 devoluciones superiores a lo retirado, 0 retiros sin auditoría, 4/4 avisos al dueño, 0 ventas / egresos / movimientos financieros involuntarios, decisiones coherentes
+ACTIVIDAD_TESTING=el operador retiró primero por error 3 unidades de un producto con 3 disponibles y luego ajustó su stock a 10 para seguir probando (actividad legítima de prueba) · consta una DEVOLUCIÓN completa de 3 unidades; NO hay anulación registrada en la base (la anulación está cubierta por las pruebas automatizadas)
+RESPALDO_PRODUCTION=deligo-production-pre-t7-f1-20261128T015520Z.dump PASS · 633889 bytes · SHA-256 ae85363267d68b49967149ccff88ed8fb01afdc60574bf5980ad29b8b311483f · 70 migraciones · 95 tablas · 1777 filas · 0 marcadores QA · sin tablas de retiros
+ENSAYO_AISLADO=copia del propio respaldo de Production (127.0.0.1:55434): restauración exacta (95 tablas, 1777 filas) → prisma migrate deploy aplicó SÓLO 20261127200000_t7_retiros_personales → 71/71 checksums = archivos de f0a04f9d (sin drift) → las 1777 filas originales idénticas (sólo +1 en _prisma_migrations) · sin tablas/columnas/constraints/índices quitados ni NOT VALID · columnas nuevas empleados.retiroPersonalHabilitado (DEFAULT false, 0 de 6 habilitados) y movimientos_inventario.retiroPersonalId/devolucionRetiroId (vacías) · 7 tablas nuevas vacías · trigger de devoluciones presente · 101/101 modelos Prisma leídos (12 negocios, 41 productos, 147 pedidos) · copia destruida
+ROLLBACK=compatible: la migración sólo agrega columnas con default/NULL y tablas que el código anterior no usa
+VERIFICADOR_POST_DESPLIEGUE=deligo-dev-local/scripts/qa/production-verificacion-t7-f1.ps1 (solo lectura; huellas base deligo-production-pre-t7-f1-huellas-base.json) · ensayo sobre la copia migrada: PASS
+SIGUIENTE_PASO=autorización expresa del operador → git push origin f0a04f9d0658de3c246b9cf641d8b482a17c2ef8:refs/heads/main (fast-forward) → supervisión del despliegue y verificador de Production
+
+=== PRECEDING HANDOFF — T7-F1 RETIROS PERSONALES · DESPLEGADA EN TESTING (f0a04f9d) · ESPERANDO CERTIFICACIÓN MANUAL FOCALIZADA (2026-11-28)
 
 REPO=testing-codex = f0a04f9d (CI 46090694070 92/92) · main = 697dfd7e (Production intacto) · la rama codex/retiros-personales sólo agrega estos documentos de evidencia
 RESPALDO=deligo-testing-pre-t7-f1-20261128T010940Z.dump PASS (SHA-256 fe001c6b…; huella del turno antiguo 3ab2f4d3… justificada: egresos de demostración del operador $500 y $800, 2026-11-27 20:10–20:12 UTC)

@@ -1,4 +1,11 @@
-## LATEST UPDATE — T7-F1 EN TESTING (2026-11-28)
+## LATEST UPDATE — T7-F1 CERTIFICADA EN TESTING · ENSAYO DE PRODUCTION PASS (2026-11-28)
+
+- Certificación manual focalizada cerrada (operador + ChatGPT). Respaldo de Production pre-t7-f1 PASS y ensayo aislado
+  de la migración 71 sobre esa copia: sólo la 71, 71/71 checksums, 1777 filas originales idénticas, 7 tablas nuevas
+  vacías, permiso de retiros en false para todos, 101/101 modelos.
+- Candidata `f0a04f9d`; esperando la autorización expresa para publicar en Production. Handoff: `CODEX_REPORT.md`.
+
+## PRECEDING UPDATE — T7-F1 EN TESTING (2026-11-28)
 
 - `testing-codex` = `f0a04f9d` (CI verde); DeliGO Copy `50bc9e11` SUCCESS con sólo la migración 71; servicios sanos.
   Respaldo previo `deligo-testing-pre-t7-f1-20261128T010940Z.dump` PASS. Production intacto (`main` `697dfd7e`).
