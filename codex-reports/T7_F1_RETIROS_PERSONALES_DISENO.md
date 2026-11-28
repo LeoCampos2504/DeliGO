@@ -102,7 +102,10 @@ filtros), `GET resumen`, `POST decisiones`, `POST decisiones/[id]/anulacion`, `P
    que el cobro: `classifyCheckoutResponse`) lo conserva; cerrar/reabrir o recargar vuelve al mismo intento, que sólo
    se puede reenviar tal cual o descartar; mientras exista, «Cobrar» reabre el retiro (nunca cobra una venta con ese
    carrito); el carrito se restaura al recargar y se vacía sólo tras la confirmación (y sólo si sigue siendo el
-   carrito retirado). Un rechazo definitivo lo descarta. Sin costos, decisiones ni credenciales en el almacenamiento.
+   carrito retirado). Un rechazo definitivo lo descarta — salvo un 401/403 al REINTENTAR un intento incierto (sesión
+   vencida o permiso revocado no prueban que el original no se registró): el intento se conserva para resolverlo con
+   una sesión autorizada. Descartarlo a mano exige una segunda confirmación que advierte que podría estar registrado y
+   que debe verificarse antes de volver a cargarlo. Sin costos, decisiones ni credenciales en el almacenamiento.
    El mecanismo de ventas (`caja-checkout-attempt.ts`) no se modificó; sólo se reutilizan su clasificación de
    respuestas y su generador de claves.
 3. **Variante borrada.** Nueva columna `retiro_personal_lineas.lineaDeVariante` (CHECK: una línea de producto nunca

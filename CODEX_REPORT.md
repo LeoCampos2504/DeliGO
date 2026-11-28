@@ -6,7 +6,14 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T7-F1 RETIROS PERSONALES · CORRECCIONES DE LA REVISIÓN DE CHATGPT · CI DE LA RAMA · ESPERANDO REVISIÓN DE LAS CORRECCIONES (2026-11-28)
+=== LATEST HANDOFF — T7-F1 RETIROS PERSONALES · AJUSTE FINAL DE IDEMPOTENCIA · LISTA PARA TESTING (PENDIENTE RESPALDO + AUTORIZACIÓN) (2026-11-28)
+
+REPO=rama ÚNICA codex/retiros-personales · correcciones aceptadas por ChatGPT sobre ab481997 (CI 46089653040, 92/92, 1.072 pruebas) · origin/main = origin/testing-codex = 697dfd7e · nada desplegado
+AJUSTE=un 401/403 al reintentar un intento incierto conserva el intento (sesión vencida o permiso revocado no prueban que no se registró); un rechazo del primer envío sigue siendo definitivo; descartar a mano pide una segunda confirmación con aviso
+PROTECCIONES_T7=rulesets de GitHub DIFERIDOS (el operador no accede a la configuración: 404); se mantienen la verificación manual del CI sobre el SHA exacto, el fast-forward sin force y la autorización por etapa
+SIGUIENTE_PASO=respaldo de TESTING (testing-respaldo-t1-t3.ps1 -Etiqueta pre-t7-f1) → autorización → fast-forward de testing-codex al SHA final con CI verde → certificación manual focalizada
+
+=== PRECEDING HANDOFF — T7-F1 RETIROS PERSONALES · CORRECCIONES DE LA REVISIÓN DE CHATGPT · CI DE LA RAMA · ESPERANDO REVISIÓN DE LAS CORRECCIONES (2026-11-28)
 
 REPO=rama ÚNICA codex/retiros-personales · revisión previa aprobada sobre 2f42bf61 (CI 46087712923, 91/91, 1.061 pruebas) · origin/main = origin/testing-codex = 697dfd7e (sin cambios) · nada desplegado
 CORRECCIONES=(1) resumen del período COMPLETO por lotes en una transacción de solo lectura, detalle paginado explícito · (2) intento de retiro incierto persistido en sessionStorage propio por negocio/contexto (misma clave y mismo contenido al cerrar/reabrir/recargar; «Cobrar» no lo convierte en venta; carrito restaurado y vaciado sólo tras la confirmación) · (3) lineaDeVariante: una variante borrada nunca reingresa al producto padre; cantidades de devolución con la regla de F4 y Decimal exacto

@@ -6,6 +6,8 @@
 VERIFIED_BEFORE=2f42bf61 · CI 46087712923 (job 140801107253) 91/91 steps · 1061 tests passed, 0 failed, 0 skipped (verified by ChatGPT)
 NEW_OR_EXTENDED=t7-f1 integration 15 → 18 (2,050-withdrawal complete summary + pagination, deleted variant, return quantities) · static contract 8 → 11 · caja-retiro-personal 5 → 8 (lost response, remount, definitive rejection, scope isolation) · NEW caja-tab.retiro-intento.test.tsx 2 (real CajaTab: lost response, close/reopen, reload, Cobrar never sells the pending cart) · owner screen 4
 CI_STEPS=85 → 86 (only an addition)
+VERIFIED=ab481997 · CI 46089653040 (job 140807314181) 92/92 · 1072 tests, 0 failed, 0 skipped (verified by ChatGPT)
+LAST_ADJUSTMENT=caja-retiro-personal 8 → 12: a 401/403 on the RETRY of an uncertain attempt keeps it (×2), a 403 on the first send is definitive, manual discard needs a second confirmation with the warning
 ```
 
 ## T7-F1 test authority (2026-11-27, branch codex/retiros-personales)
