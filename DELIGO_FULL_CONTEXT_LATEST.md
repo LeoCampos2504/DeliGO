@@ -1,4 +1,11 @@
-## LATEST UPDATE — T7-F1: CORRECCIONES DE LA REVISIÓN INDEPENDIENTE (2026-11-28)
+## LATEST UPDATE — T7-F1 EN TESTING (2026-11-28)
+
+- `testing-codex` = `f0a04f9d` (CI verde); DeliGO Copy `50bc9e11` SUCCESS con sólo la migración 71; servicios sanos.
+  Respaldo previo `deligo-testing-pre-t7-f1-20261128T010940Z.dump` PASS. Production intacto (`main` `697dfd7e`).
+- Siguiente: verificador de solo lectura del operador y certificación manual focalizada de Retiros personales.
+- Mejora futura registrada: usar un turno cerrado como referencia de integridad de los respaldos.
+
+## PRECEDING UPDATE — T7-F1: CORRECCIONES DE LA REVISIÓN INDEPENDIENTE (2026-11-28)
 
 - Arquitectura aceptada por ChatGPT sobre `2f42bf61` (CI 46087712923, 1.061 pruebas). Corregido antes de TESTING:
   resumen sin truncamiento (período completo por lotes), intento incierto persistido (sin duplicar al cerrar, reabrir

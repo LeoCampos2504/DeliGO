@@ -26,6 +26,13 @@
 6. Funcionalidades restantes del roadmap.
 7. Investigación del seguimiento GPS de repartidores (P2-T23/T24 excluidos de Production; historial conservado).
 
+### MEJORA FUTURA DE PROCESO (operador, 2026-11-28)
+
+Usar un turno CERRADO como referencia de integridad de los respaldos de TESTING. El turno abierto actual
+(`cmw2sjtoj002do40aqaq0i1hu`, del dueño de paola-vinal) cambia su huella con cualquier egreso del dueño (pasó en la
+demostración del 2026-11-27); un turno cerrado no admite movimientos nuevos y su huella sólo cambiaría ante una
+alteración real.
+
 ### FUERA DEL ALCANCE DE T7-F1 (no implementar sin discutirlo)
 
 Liquidación de sueldos, descuentos salariales automáticos, cobros reales de lo decidido (efectivo, transferencia o

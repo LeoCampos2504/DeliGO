@@ -1,5 +1,18 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## T7-F1 Retiros personales — Railway TESTING deploy (2026-11-28, Claude Code)
+
+```text
+AUTHORIZATION=operator: fast-forward testing-codex to f0a04f9d0658de3c246b9cf641d8b482a17c2ef8 (no force, no new commits) after the PASS backup
+BACKUP=deligo-testing-pre-t7-f1-20261128T010940Z.dump 1575892 bytes SHA-256 fe001c6bd480248925db7916df39ac0339508c7e9a5023ca51c8198b90f64170 (PASS, 70 migrations; old-shift fingerprint 3ab2f4d3… justified by the operator: demo cash outflows of $500 and $800 on 2026-11-27 20:10–20:12 UTC) · first run 010325Z kept as evidence (FAIL only on that fingerprint)
+CI=46090694070 (job 140810650765) SUCCESS 92/92 on the exact SHA
+PUSH=697dfd7e..f0a04f9d testing-codex (01:12:11 UTC)
+RAILWAY_TESTING=DeliGO Copy 50bc9e11-409f-4b31-803f-1c98ab541797 SUCCESS commitHash exact (pre-deploy: 71 found, ONLY 20261127200000_t7_retiros_personales applied; Ready in 67 ms; 4b6607b0 REMOVED) · chat 4d28b77a SUCCESS · Mesa Cron 88b32251 SUCCESS (run 01:17 errors 0) · Review Expiry c11be199 SUCCESS
+SMOKE=/ 307 · /login 200 · /api/negocios 200 · auth/owner/cashier and the 5 new withdrawal routes 401 without session (same as ventas/egresos) · 0 5xx in the last hour · Postgres: only old-container SSL EOF at the switchover
+DATA_CHECK=read-only verifier testing-verificacion-t7-f1.ps1 (operator; dry-run on an isolated copy of the backup + migration 71: PASS — 71 migrations, 1 applied, checksums OK with the 2 documented historical TESTING drifts pinned, 94/94 previous tables identical, 102 tables, 0 employees with the new permission, 0 withdrawals)
+MAIN=697dfd7e unchanged · PRODUCTION=untouched
+```
+
 ## T7 — methodology activation · release tag · docs branch (2026-11-27, Claude Code)
 
 ```text

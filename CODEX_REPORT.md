@@ -6,7 +6,15 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T7-F1 RETIROS PERSONALES · AJUSTE FINAL DE IDEMPOTENCIA · LISTA PARA TESTING (PENDIENTE RESPALDO + AUTORIZACIÓN) (2026-11-28)
+=== LATEST HANDOFF — T7-F1 RETIROS PERSONALES · DESPLEGADA EN TESTING (f0a04f9d) · ESPERANDO CERTIFICACIÓN MANUAL FOCALIZADA (2026-11-28)
+
+REPO=testing-codex = f0a04f9d (CI 46090694070 92/92) · main = 697dfd7e (Production intacto) · la rama codex/retiros-personales sólo agrega estos documentos de evidencia
+RESPALDO=deligo-testing-pre-t7-f1-20261128T010940Z.dump PASS (SHA-256 fe001c6b…; huella del turno antiguo 3ab2f4d3… justificada: egresos de demostración del operador $500 y $800, 2026-11-27 20:10–20:12 UTC)
+TESTING=DeliGO Copy 50bc9e11 SUCCESS (sólo la migración 71 aplicada) · chat 4d28b77a · Mesa Cron 88b32251 (errors 0) · Review Expiry c11be199 · smoke OK · 0 5xx
+VERIFICADOR=deligo-dev-local/scripts/qa/testing-verificacion-t7-f1.ps1 (solo lectura; drift histórico de checksums de TESTING 20261009120000 / 20261015120000 aceptado sólo con sus valores exactos) · ensayo local PASS
+SIGUIENTE_PASO=operador: verificador (PASS esperado) → certificación manual focalizada (codex-reports/T7_F1_RETIROS_PERSONALES_DISENO.md, matriz del informe) → verificador otra vez → revisión de la evidencia → autorización de Production con el MISMO SHA f0a04f9d
+
+=== PRECEDING HANDOFF — T7-F1 RETIROS PERSONALES · AJUSTE FINAL DE IDEMPOTENCIA · LISTA PARA TESTING (PENDIENTE RESPALDO + AUTORIZACIÓN) (2026-11-28)
 
 REPO=rama ÚNICA codex/retiros-personales · correcciones aceptadas por ChatGPT sobre ab481997 (CI 46089653040, 92/92, 1.072 pruebas) · origin/main = origin/testing-codex = 697dfd7e · nada desplegado
 AJUSTE=un 401/403 al reintentar un intento incierto conserva el intento (sesión vencida o permiso revocado no prueban que no se registró); un rechazo del primer envío sigue siendo definitivo; descartar a mano pide una segunda confirmación con aviso
