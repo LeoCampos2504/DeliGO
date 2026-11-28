@@ -115,6 +115,8 @@ export function clearPendingRetiro(scope: string): void {
 }
 
 export const RETIRO_INCIERTO_MENSAJE = "No sabemos si el retiro se registró. Tocá Confirmar de nuevo: si ya estaba registrado, no se duplica."
+/** Reintento de un intento incierto rechazado por sesión o permiso: NO prueba que el original no se haya registrado. */
+export const RETIRO_REINTENTO_SIN_ACCESO_MENSAJE = "No pudimos confirmar el retiro: la sesión venció o el permiso cambió. El intento queda guardado: volvé a ingresar con una sesión autorizada y tocá Confirmar de nuevo. No vuelvas a cargar este retiro."
 
 type Seleccion = { tipo: BeneficiarioTipo; empleadoId: string; familiarId: string; nuevoFamiliar: string }
 
@@ -162,6 +164,7 @@ export function RetiroPersonalDialog({
   const [confirmo, setConfirmo] = useState(false)
   const [enviando, setEnviando] = useState(false)
   const [error, setError] = useState<string | null>(pendiente ? RETIRO_INCIERTO_MENSAJE : null)
+  const [confirmandoDescarte, setConfirmandoDescarte] = useState(false)
   const total = cartTotal(cart)
   const familiares = contexto?.familiares ?? []
 
@@ -183,8 +186,12 @@ export function RetiroPersonalDialog({
     : sel.familiarId ? familiares.find((f) => f.id === sel.familiarId)?.nombre ?? "Familiar"
     : limpiarNombreFamiliar(sel.nuevoFamiliar)
 
-  /** Envía un intento ya guardado. Sólo una respuesta DEFINITIVA lo descarta; una incierta lo conserva. */
-  async function enviar(attempt: PendingRetiroAttempt) {
+  /**
+   * Envía un intento ya guardado. Sólo una respuesta DEFINITIVA lo descarta; una incierta lo conserva.
+   * `reintento` = reenvío de un intento cuyo resultado anterior fue incierto: ahí un 401/403 (sesión vencida o permiso
+   * revocado) tampoco descarta nada, porque no demuestra que el envío original no se haya registrado.
+   */
+  async function enviar(attempt: PendingRetiroAttempt, reintento: boolean) {
     setError(null)
     setEnviando(true)
     try {
@@ -203,6 +210,7 @@ export function RetiroPersonalDialog({
         return
       }
       if (outcome === "uncertain" || outcome === "success") throw new Error(RETIRO_INCIERTO_MENSAJE)
+      if (reintento && (res.status === 401 || res.status === 403)) throw new Error(RETIRO_REINTENTO_SIN_ACCESO_MENSAJE) // se conserva
       onPendienteChange(null) // rechazo definitivo: con esta clave no quedó nada registrado
       if (json.code === "PRECIOS_CAMBIARON") onPreciosDesactualizados?.()
       throw new Error(json.error ?? "No se pudo registrar el retiro.")
@@ -222,7 +230,7 @@ export function RetiroPersonalDialog({
     const body = cuerpoRetiro(cart, sel, observaciones)
     const attempt: PendingRetiroAttempt = { key: newIdempotencyKey(), canonical: JSON.stringify(body), cart: cart.map((l) => ({ ...l })), beneficiarioNombre: nombreBeneficiario(), createdAt: Date.now() }
     onPendienteChange(attempt) // guardado ANTES de enviar: una respuesta perdida nunca pierde la clave
-    await enviar(attempt)
+    await enviar(attempt, false)
   }
 
   if (pendiente) {
@@ -246,12 +254,23 @@ export function RetiroPersonalDialog({
             </ul>
             <p className="font-semibold">Valor comercial {formatPrice(totalPendiente)}</p>
             {error && <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200" role="alert">{error}</p>}
-            <Button data-testid="retiro-reintentar" className="w-full h-11 rounded-xl font-bold" disabled={enviando} onClick={() => void enviar(pendiente)}>
+            <Button data-testid="retiro-reintentar" className="w-full h-11 rounded-xl font-bold" disabled={enviando} onClick={() => void enviar(pendiente, true)}>
               {enviando ? "Confirmando…" : "Confirmar de nuevo"}
             </Button>
-            <button type="button" data-testid="retiro-descartar" disabled={enviando} className="w-full text-xs font-semibold underline underline-offset-2" onClick={() => { onPendienteChange(null); onClose() }}>
-              Descartar este intento (si ya se registró, el dueño lo verá en Retiros personales)
-            </button>
+            {!confirmandoDescarte ? (
+              <button type="button" data-testid="retiro-descartar" disabled={enviando} className="w-full text-xs font-semibold underline underline-offset-2" onClick={() => setConfirmandoDescarte(true)}>
+                Descartar este intento
+              </button>
+            ) : (
+              <div className="space-y-2 rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200" role="alert" data-testid="retiro-descartar-aviso">
+                <p className="font-semibold">Este retiro podría estar registrado.</p>
+                <p>Antes de volver a cargarlo, verificá en Administración → Resumen → Retiros personales (o pedíselo al dueño). Si lo cargás de nuevo sin verificar, puede quedar registrado dos veces.</p>
+                <div className="flex gap-2">
+                  <Button data-testid="retiro-descartar-confirmar" variant="outline" className="min-h-10 flex-1 rounded-xl" onClick={() => { onPendienteChange(null); onClose() }}>Descartar igual</Button>
+                  <Button variant="ghost" className="min-h-10 rounded-xl" onClick={() => setConfirmandoDescarte(false)}>Volver</Button>
+                </div>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>

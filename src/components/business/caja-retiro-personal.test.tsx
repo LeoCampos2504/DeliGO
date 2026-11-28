@@ -168,17 +168,66 @@ describe("T7-F1 — formulario de Retiro personal", () => {
     expect(readPendingRetiro(SCOPE)).toBeNull()
   })
 
-  test("un rechazo definitivo de un intento pendiente lo descarta y vuelve al formulario editable", async () => {
+  test("un rechazo definitivo (no de sesión) de un intento pendiente lo descarta y vuelve al formulario editable", async () => {
     await render()
     await click($("retiro-confirmo"))
     respuesta = () => new Response("{}", { status: 502 })
     await click($("retiro-confirmar"))
     expect(readPendingRetiro(SCOPE)).not.toBeNull()
-    respuesta = () => new Response(JSON.stringify({ ok: false, error: "No tenés permiso", code: "RETIRO_NO_HABILITADO" }), { status: 403 })
+    respuesta = () => new Response(JSON.stringify({ ok: false, error: "No hay stock suficiente", code: "STOCK_INSUFFICIENT" }), { status: 409 })
     await click($("retiro-reintentar"))
     expect(readPendingRetiro(SCOPE)).toBeNull()
     expect($("retiro-confirmar")).not.toBeNull()
+    expect(document.body.textContent).toContain("No hay stock suficiente")
+  })
+
+  for (const status of [401, 403]) {
+    test(`reintento de un intento incierto rechazado con ${status} (sesión vencida o permiso revocado): el intento se CONSERVA`, async () => {
+      await render()
+      await click($("retiro-confirmo"))
+      respuesta = () => { throw new TypeError("Failed to fetch") }
+      await click($("retiro-confirmar"))
+      const guardado = readPendingRetiro(SCOPE)!
+      respuesta = () => new Response(JSON.stringify({ ok: false, error: "Acceso no disponible" }), { status })
+      await click($("retiro-reintentar"))
+      expect(readPendingRetiro(SCOPE)?.key).toBe(guardado.key)
+      expect($("retiro-pendiente")).not.toBeNull()
+      expect(document.body.textContent).toContain("la sesión venció o el permiso cambió")
+      // con la sesión recuperada, el mismo intento se resuelve con la misma clave y el mismo contenido
+      respuesta = () => new Response(JSON.stringify({ ok: true, retiro: { id: "r1", beneficiarioNombre: "Cajera Ana", valorComercial: 4000, cantidadLineas: 2 } }), { status: 200, headers: { "Idempotency-Replayed": "true" } })
+      await click($("retiro-reintentar"))
+      expect(posts.map((x) => x.key)).toEqual([guardado.key, guardado.key, guardado.key])
+      expect(posts.every((x) => JSON.stringify(x.body) === guardado.canonical)).toBe(true)
+      expect(readPendingRetiro(SCOPE)).toBeNull()
+    })
+  }
+
+  test("un 403 en el PRIMER envío es un rechazo definitivo: no queda ningún intento pendiente", async () => {
+    await render()
+    await click($("retiro-confirmo"))
+    respuesta = () => new Response(JSON.stringify({ ok: false, error: "No tenés permiso para registrar retiros personales.", code: "RETIRO_NO_HABILITADO" }), { status: 403 })
+    await click($("retiro-confirmar"))
+    expect(readPendingRetiro(SCOPE)).toBeNull()
+    expect($("retiro-pendiente")).toBeNull()
     expect(document.body.textContent).toContain("No tenés permiso")
+  })
+
+  test("descartar un intento incierto exige una segunda confirmación que advierte que podría estar registrado", async () => {
+    const vista = await render()
+    await click($("retiro-confirmo"))
+    respuesta = () => new Response("{}", { status: 503 })
+    await click($("retiro-confirmar"))
+    await click($("retiro-descartar"))
+    expect(readPendingRetiro(SCOPE)).not.toBeNull() // el primer toque sólo muestra el aviso
+    expect($("retiro-descartar-aviso")!.textContent).toContain("podría estar registrado")
+    expect($("retiro-descartar-aviso")!.textContent).toContain("verificá")
+    await click([...$("retiro-descartar-aviso")!.querySelectorAll("button")].find((b) => b.textContent === "Volver") as HTMLElement)
+    expect($("retiro-descartar-aviso")).toBeNull()
+    expect(readPendingRetiro(SCOPE)).not.toBeNull()
+    await click($("retiro-descartar"))
+    await click($("retiro-descartar-confirmar"))
+    expect(readPendingRetiro(SCOPE)).toBeNull()
+    expect(vista.cerrado()).toBe(true)
   })
 
   test("los intentos se aíslan por negocio y contexto operativo; un registro inválido se ignora", () => {
