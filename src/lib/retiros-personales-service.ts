@@ -370,7 +370,7 @@ async function registrarRetiroEnTx(
           varianteNombre: l.item.varianteNombre,
           cantidad: l.item.cantidad,
           precioUnitarioDecimal: round2(l.item.precio),
-          subtotalDecimal: l.subtotal,
+          valorLineaDecimal: l.subtotal,
           costoUnitarioDecimal: l.costoUnitario,
           costoTotalDecimal: l.costoTotal,
           movioStock: clavesMovidas.has(`${l.item.productoId}:${l.item.varianteId ?? ""}`),
@@ -438,7 +438,7 @@ export function retiroParaCajero(r: RetiroCompleto) {
     beneficiarioNombre: r.beneficiarioNombre,
     valorComercial: moneyToNumber(r.valorComercialDecimal),
     cantidadLineas: r.cantidadLineas,
-    lineas: r.lineas.map((l) => ({ nombre: l.nombre, varianteNombre: l.varianteNombre, cantidad: l.cantidad, precioUnitario: moneyToNumber(l.precioUnitarioDecimal), subtotal: moneyToNumber(l.subtotalDecimal) })),
+    lineas: r.lineas.map((l) => ({ nombre: l.nombre, varianteNombre: l.varianteNombre, cantidad: l.cantidad, precioUnitario: moneyToNumber(l.precioUnitarioDecimal), subtotal: moneyToNumber(l.valorLineaDecimal) })),
   }
 }
 
@@ -474,7 +474,7 @@ export function retiroParaDueno(r: RetiroCompleto) {
       cantidad: l.cantidad,
       devuelto: devueltoPorLinea.get(l.id) ?? 0,
       precioUnitario: moneyToNumber(l.precioUnitarioDecimal),
-      subtotal: moneyToNumber(l.subtotalDecimal),
+      subtotal: moneyToNumber(l.valorLineaDecimal),
       costoUnitario: l.costoUnitarioDecimal ? l.costoUnitarioDecimal.toNumber() : null,
       costoTotal: l.costoTotalDecimal ? moneyToNumber(l.costoTotalDecimal) : null,
       movioStock: l.movioStock,
@@ -808,7 +808,7 @@ export async function registrarDevolucionRetiro(
         if (p.cantidad > quedan + 1e-9) return rechazo(409, `«${p.linea.nombre}»: sólo quedan ${quedan} por devolver.`, "DEVOLUCION_EXCEDE_RETIRADO")
         const completa = Math.abs(p.cantidad - quedan) <= 1e-9
         // La última devolución de una línea toma el remanente exacto (sin centavos sueltos por redondeo).
-        const valor = completa ? p.linea.subtotalDecimal.minus(valorDevueltoLinea.get(p.linea.id) ?? 0) : round2(p.linea.precioUnitarioDecimal.times(p.cantidad))
+        const valor = completa ? p.linea.valorLineaDecimal.minus(valorDevueltoLinea.get(p.linea.id) ?? 0) : round2(p.linea.precioUnitarioDecimal.times(p.cantidad))
         const costo = !p.linea.costoUnitarioDecimal || !p.linea.costoTotalDecimal
           ? null
           : completa ? p.linea.costoTotalDecimal.minus(costoDevueltoLinea.get(p.linea.id) ?? 0) : round2(p.linea.costoUnitarioDecimal.times(p.cantidad))

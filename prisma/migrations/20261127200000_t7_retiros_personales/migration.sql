@@ -62,7 +62,7 @@ CREATE TABLE "retiro_personal_lineas" (
     "varianteNombre" TEXT,
     "cantidad" DOUBLE PRECISION NOT NULL,
     "precioUnitarioDecimal" DECIMAL(12,2) NOT NULL,
-    "subtotalDecimal" DECIMAL(12,2) NOT NULL,
+    "valorLineaDecimal" DECIMAL(12,2) NOT NULL,
     "costoUnitarioDecimal" DECIMAL(14,4),
     "costoTotalDecimal" DECIMAL(12,2),
     "movioStock" BOOLEAN NOT NULL,
@@ -271,7 +271,7 @@ ALTER TABLE "retiros_personales" ADD CONSTRAINT "retiros_personales_valores_chk"
 );
 
 ALTER TABLE "retiro_personal_lineas" ADD CONSTRAINT "retiro_personal_lineas_valores_chk" CHECK (
-  "cantidad" > 0 AND "precioUnitarioDecimal" >= 0 AND "subtotalDecimal" >= 0
+  "cantidad" > 0 AND "precioUnitarioDecimal" >= 0 AND "valorLineaDecimal" >= 0
   AND ("costoUnitarioDecimal" IS NULL) = ("costoTotalDecimal" IS NULL)
   AND ("costoUnitarioDecimal" IS NULL OR ("costoUnitarioDecimal" >= 0 AND "costoTotalDecimal" >= 0))
 );

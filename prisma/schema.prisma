@@ -3265,7 +3265,7 @@ model RetiroPersonalLinea {
   varianteNombre        String?
   cantidad              Float
   precioUnitarioDecimal Decimal  @db.Decimal(12, 2)
-  subtotalDecimal       Decimal  @db.Decimal(12, 2)
+  valorLineaDecimal     Decimal  @db.Decimal(12, 2) // valor comercial de la línea (precio × cantidad); NO es un importe de venta
   costoUnitarioDecimal  Decimal? @db.Decimal(14, 4) // NULL = costo desconocido (nunca 0)
   costoTotalDecimal     Decimal? @db.Decimal(12, 2)
   movioStock            Boolean // la clave tenía control de stock y se descontó en el retiro
