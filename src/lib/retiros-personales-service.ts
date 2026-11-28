@@ -196,6 +196,21 @@ function isUniqueViolation(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002"
 }
 
+function uniqueTarget(error: unknown): string {
+  const target = error instanceof Prisma.PrismaClientKnownRequestError ? (error.meta as { target?: unknown } | undefined)?.target : undefined
+  return Array.isArray(target) ? target.join(",") : String(target ?? "")
+}
+
+export const FAMILIAR_NOMBRE_EXISTENTE_CODE = "FAMILIAR_NOMBRE_EXISTENTE"
+function familiarExistente(previo: { id: string; nombre: string } | null): Rechazo & { familiar?: { id: string; nombre: string } } {
+  return {
+    ...rechazo(409, previo
+      ? `Ya hay un familiar registrado como «${previo.nombre}». Si es la misma persona, elegilo de la lista; si es otra, escribí un nombre que los distinga (por ejemplo, agregá el apellido o el parentesco).`
+      : "Ya hay un familiar registrado con ese nombre. Elegilo de la lista o escribí un nombre que los distinga.", FAMILIAR_NOMBRE_EXISTENTE_CODE),
+    ...(previo ? { familiar: previo } : {}),
+  }
+}
+
 function replayORechazo(existente: RetiroCompleto, fingerprint: string): RegistrarRetiroResult {
   if (existente.idempotencyFingerprint !== fingerprint) return rechazo(409, "Esta clave de operación ya se usó para otro retiro. Volvé a intentarlo.", "IDEMPOTENCY_KEY_REUSED")
   return { ok: true, replayed: true, retiro: existente }
@@ -214,6 +229,10 @@ export async function registrarRetiroPersonal(
     if (isUniqueViolation(error)) {
       const existente = await db.retiroPersonal.findUnique({ where: { negocioId_idempotencyKey: { negocioId, idempotencyKey } }, include: RETIRO_INCLUDE })
       if (existente) return replayORechazo(existente, fingerprint)
+      if (uniqueTarget(error).includes("nombreNormalizado") && input.entrada.beneficiario.tipo === "FAMILIAR" && "nuevoNombre" in input.entrada.beneficiario) {
+        const normalizado = normalizarNombreFamiliar(input.entrada.beneficiario.nuevoNombre)
+        return familiarExistente(await db.familiarRetiro.findUnique({ where: { negocioId_nombreNormalizado: { negocioId, nombreNormalizado: normalizado } }, select: { id: true, nombre: true } }))
+      }
     }
     throw error
   }
@@ -250,15 +269,13 @@ async function registrarRetiroEnTx(
     beneficiarioFamiliarId = f.id
     beneficiarioNombre = f.nombre
   } else if (ben.tipo === "FAMILIAR") {
+    // Un nombre ya registrado NUNCA se reutiliza en silencio: puede ser otra persona con el mismo nombre. El cajero
+    // elige explícitamente al familiar existente o escribe un nombre que los distinga.
     const normalizado = normalizarNombreFamiliar(ben.nuevoNombre)
     const previo = await tx.familiarRetiro.findUnique({ where: { negocioId_nombreNormalizado: { negocioId, nombreNormalizado: normalizado } }, select: { id: true, nombre: true } })
-    if (previo) {
-      beneficiarioFamiliarId = previo.id
-      beneficiarioNombre = previo.nombre
-    } else {
-      familiarNuevo = { nombre: ben.nuevoNombre, normalizado }
-      beneficiarioNombre = ben.nuevoNombre
-    }
+    if (previo) return familiarExistente(previo)
+    familiarNuevo = { nombre: ben.nuevoNombre, normalizado }
+    beneficiarioNombre = ben.nuevoNombre
   } else {
     const n = await tx.negocio.findUnique({ where: { id: negocioId }, select: { nombre: true } })
     beneficiarioNombre = n?.nombre ?? "Dueño"
@@ -312,11 +329,12 @@ async function registrarRetiroEnTx(
 
   // 6. Desde acá nada puede rechazar: familiar nuevo (reutiliza si otro lo creó en paralelo), retiro, stock.
   if (familiarNuevo) {
-    await tx.familiarRetiro.createMany({
-      data: [{ negocioId, nombre: familiarNuevo.nombre, nombreNormalizado: familiarNuevo.normalizado, creadoPorTipo: reg.tipo, creadoPorId: reg.auditId }],
-      skipDuplicates: true,
+    // Si otra operación creó el mismo nombre al mismo tiempo, el índice único hace fallar ESTA transacción entera
+    // (nada queda registrado) y registrarRetiroPersonal responde FAMILIAR_NOMBRE_EXISTENTE: nunca se fusionan personas.
+    const f = await tx.familiarRetiro.create({
+      data: { negocioId, nombre: familiarNuevo.nombre, nombreNormalizado: familiarNuevo.normalizado, creadoPorTipo: reg.tipo, creadoPorId: reg.auditId },
+      select: { id: true, nombre: true },
     })
-    const f = await tx.familiarRetiro.findUniqueOrThrow({ where: { negocioId_nombreNormalizado: { negocioId, nombreNormalizado: familiarNuevo.normalizado } }, select: { id: true, nombre: true } })
     beneficiarioFamiliarId = f.id
     beneficiarioNombre = f.nombre
   }

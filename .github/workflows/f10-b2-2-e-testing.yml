@@ -161,6 +161,14 @@ jobs:
       # F10-D1: post-close conciliations / recoveries of cash outflows (ephemeral postgres only) + static contract.
       - run: bun --no-env-file test src/lib/f10-d1-correcciones-egresos.integration.test.ts
       - run: bun --no-env-file test src/lib/f10-d1-static-contract.test.ts
+      # T7-F1: retiros personales de mercadería — integración sobre el postgres:16 efímero (registro, stock y reservas,
+      # atomicidad, idempotencia, concurrencia, permisos, aislamiento, sin dinero, resumen, decisiones, devoluciones),
+      # contrato estático (autoridad de stock, sin escrituras de dinero, rutas, migración aditiva) y las dos pantallas.
+      # El contrato R3A-I2 (callers exactos de runStockSerializable) se suma al CI con el nuevo caller registrado.
+      - run: bun --no-env-file test src/lib/t7-f1-retiros-personales.integration.test.ts
+      - run: bun --no-env-file test src/lib/t7-f1-retiros-personales-static-contract.test.ts src/lib/p2-t56-r3a-i2-wiring-static-contract.test.ts
+      - run: bun --no-env-file test src/components/business/caja-retiro-personal.test.tsx
+      - run: bun --no-env-file test src/components/business/owner-retiros-personales.test.tsx
       # T4: Caja / Administración navigation (cart preserved, counters, guarded navigation) + tab gating.
       - run: bun --no-env-file test src/components/business/caja-administracion-static-contract.test.ts src/components/business/business-panel-tab-gating.test.ts
       - run: bun --no-env-file test "src/app/operaciones/mi-panel/[slug]/caja/page.test.tsx"

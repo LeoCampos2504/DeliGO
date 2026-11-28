@@ -110,16 +110,16 @@ export function RetiroPersonalDialog({
     return n ? contexto.familiares.find((f) => normalizarNombreFamiliar(f.nombre) === n) ?? null : null
   }, [sel.nuevoFamiliar, contexto.familiares])
 
+  // Un nombre igual a uno registrado (sin distinguir mayúsculas ni acentos) NO se asume como la misma persona: el
+  // cajero elige al registrado o escribe un nombre que los distinga. El servidor aplica la misma regla.
   const beneficiarioListo =
     sel.tipo === "DUENO" ? Boolean(contexto.dueno)
     : sel.tipo === "EMPLEADO" ? Boolean(sel.empleadoId)
-    : Boolean(sel.familiarId) || (limpiarNombreFamiliar(sel.nuevoFamiliar).length > 0 && limpiarNombreFamiliar(sel.nuevoFamiliar).length <= FAMILIAR_NOMBRE_MAX)
+    : Boolean(sel.familiarId) || (!familiarExistente && limpiarNombreFamiliar(sel.nuevoFamiliar).length > 0 && limpiarNombreFamiliar(sel.nuevoFamiliar).length <= FAMILIAR_NOMBRE_MAX)
 
   async function confirmar() {
     setError(null)
-    // Un nombre que ya existe reutiliza al familiar registrado (nunca se duplica por mayúsculas o acentos).
-    const seleccion = sel.tipo === "FAMILIAR" && !sel.familiarId && familiarExistente ? { ...sel, familiarId: familiarExistente.id } : sel
-    const body = cuerpoRetiro(cart, seleccion, observaciones)
+    const body = cuerpoRetiro(cart, sel, observaciones)
     const canonical = JSON.stringify(body)
     const key = intento && intento.canonical === canonical ? intento.key : newIdempotencyKey()
     setIntento({ key, canonical })
@@ -132,7 +132,7 @@ export function RetiroPersonalDialog({
       } catch {
         throw new Error("No sabemos si el retiro se registró (falló la conexión). Confirmá de nuevo: si ya estaba registrado, no se duplica.")
       }
-      const json = (await res.json().catch(() => ({}))) as { retiro?: RetiroRegistrado; error?: string; code?: string }
+      const json = (await res.json().catch(() => ({}))) as { retiro?: RetiroRegistrado; error?: string; code?: string; familiar?: { id: string; nombre: string } }
       if (res.status === 401 || res.status === 403) onAccessLost?.(res.status)
       if (res.ok && json.retiro) {
         onRegistrado(json.retiro, res.headers.get("Idempotency-Replayed") === "true")
@@ -201,7 +201,15 @@ export function RetiroPersonalDialog({
                 <label className="block space-y-1">
                   <span className="text-xs font-semibold text-muted-foreground">Nombre del familiar nuevo</span>
                   <Input data-testid="retiro-familiar-nuevo" value={sel.nuevoFamiliar} maxLength={FAMILIAR_NOMBRE_MAX} onChange={(e) => setSel((s) => ({ ...s, nuevoFamiliar: e.target.value }))} placeholder="Ej.: Ana Pérez" className="h-11 rounded-xl" />
-                  {familiarExistente && <span className="block text-xs text-muted-foreground">Ya está registrado como «{familiarExistente.nombre}»: se usará ese familiar.</span>}
+                  {familiarExistente && (
+                    <span className="block space-y-1 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200" data-testid="retiro-familiar-coincide">
+                      <span className="block">Ya hay un familiar registrado como «{familiarExistente.nombre}». ¿Es la misma persona?</span>
+                      <button type="button" data-testid="retiro-familiar-usar-existente" className="font-semibold underline underline-offset-2" onClick={() => setSel((s) => ({ ...s, familiarId: familiarExistente.id, nuevoFamiliar: "" }))}>
+                        Sí, usar «{familiarExistente.nombre}»
+                      </button>
+                      <span className="block">Si es otra persona, escribí un nombre que los distinga (apellido o parentesco).</span>
+                    </span>
+                  )}
                 </label>
               )}
             </div>

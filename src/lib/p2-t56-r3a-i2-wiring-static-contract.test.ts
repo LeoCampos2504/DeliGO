@@ -71,6 +71,8 @@ const sorted = (xs: string[]) => [...xs].sort()
 const CAJA = "src/lib/caja-venta-service.ts"
 const CAJA_ROUTE = "src/app/api/negocio/caja/ventas/route.ts"
 const MOVIMIENTOS = "src/app/api/negocio/inventario/movimientos/route.ts"
+// T7-F1: retiros personales (registro, decisiones y devoluciones) — mismo runner y misma política de timeout.
+const RETIROS = "src/lib/retiros-personales-service.ts"
 
 describe("ORDER_CREATION_WIRING=2/2", () => {
   test("los únicos creadores productivos de Pedido son los 2 entrypoints conocidos", () => {
@@ -226,8 +228,8 @@ describe("I2-F2 — política de timeout de la transacción de stock: explícita
   test("los callers de runStockSerializable no pasan maxWait/timeout propios", () => {
     const callers = productive.filter(({ path, src }) => path !== AUTHORITY && src.includes("runStockSerializable("))
     // I2: 2 creadores + 6 escritores de preparando; I3: + Caja + Movimientos manuales.
-    // F10-B0: el caller de Caja es el motor único compartido (no la ruta).
-    expect(sorted(callers.map(({ path }) => path))).toEqual(sorted([...CREATORS, ...PREPARANDO_WRITERS, CAJA, MOVIMIENTOS]))
+    // F10-B0: el caller de Caja es el motor único compartido (no la ruta). T7-F1: + retiros personales.
+    expect(sorted(callers.map(({ path }) => path))).toEqual(sorted([...CREATORS, ...PREPARANDO_WRITERS, CAJA, MOVIMIENTOS, RETIROS]))
     for (const { path, src } of callers) {
       let from = 0
       for (;;) {

@@ -34,7 +34,8 @@ import {
 } from "@/lib/retiros-personales-service"
 
 const json = (body: unknown, status = 200, headers?: Record<string, string>) => noStore(NextResponse.json(body, { status, ...(headers ? { headers } : {}) }))
-const fail = (r: { status: number; error: string; code?: string }) => json(r.code ? { ok: false, error: r.error, code: r.code } : { ok: false, error: r.error }, r.status)
+const fail = (r: { status: number; error: string; code?: string; familiar?: { id: string; nombre: string } }) =>
+  json({ ok: false, error: r.error, ...(r.code ? { code: r.code } : {}), ...(r.familiar ? { familiar: r.familiar } : {}) }, r.status)
 
 export const RETIRO_CONFLICTO_CODE = "RETIRO_CONFLICTO_CONCURRENTE"
 

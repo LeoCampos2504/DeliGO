@@ -109,6 +109,8 @@ export default function CajeroCajaPage() {
       categoriasQueryKey: ["operativo-caja-categorias", empleado.id, negocio.id],
       ventasUrl: `/api/operativo/caja/${encodeURIComponent(negocio.slug)}/ventas`,
       ventasHoyQueryKey: null,
+      // T7-F1: the option appears only if the owner enabled this employee (the server re-checks every time).
+      retirosUrl: `/api/operativo/caja/${encodeURIComponent(negocio.slug)}/retiros-personales`,
       onAccessLost: (status) => handleAccessLost(status),
     }
   }, [state, handleAccessLost])

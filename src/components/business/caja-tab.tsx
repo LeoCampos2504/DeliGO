@@ -71,6 +71,7 @@ import { OwnerCajaEgresos, ResumenEgresosHoy, type EgresosHoy } from "@/componen
 import { OwnerProveedores } from "@/components/business/owner-proveedores"
 import { OwnerCompras, comprasQueryKey } from "@/components/business/owner-compras"
 import { RetiroPersonalDialog, retiroContextoQueryKey, useRetiroContexto } from "@/components/business/caja-retiro-personal"
+import { OwnerRetirosPersonales } from "@/components/business/owner-retiros-personales"
 import {
   addCartLine,
   cartItemCount,
@@ -1385,6 +1386,8 @@ function ResumenView({ negocioId, onIrAVender }: { negocioId: string; onIrAVende
       </div>
       {data?.desgloseHoy && <DesgloseCambiosHoy desglose={data.desgloseHoy} />}
       {data?.egresosHoy && <ResumenEgresosHoy egresos={data.egresosHoy} />}
+      {/* T7-F1: personal withdrawals of merchandise (owner only; never sales nor money). */}
+      <OwnerRetirosPersonales />
 
       <div>
         <p className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground mb-1.5">
