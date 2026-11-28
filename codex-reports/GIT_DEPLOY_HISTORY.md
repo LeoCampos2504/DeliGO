@@ -1,5 +1,18 @@
 # GIT / DEPLOY HISTORY — DeliGO (P2-T05 workstream)
 
+## T7-F1 Retiros personales — Production deploy (2026-11-28, Claude Code)
+
+```text
+AUTHORIZATION=operator «T7-F1 — Autorización definitiva de Production»: git push origin f0a04f9d…:refs/heads/main (fast-forward, no force)
+BACKUP=deligo-production-pre-t7-f1-20261128T015520Z.dump SHA-256 ae85363267d68b49967149ccff88ed8fb01afdc60574bf5980ad29b8b311483f (PASS) · still current at push time: no API request after 01:25 UTC and both crons wrote nothing (scanned 0, expired 0 at 02:01/02:02) · isolated rehearsal PASS
+PRECONDITIONS=main 697dfd7e · ff possible (11 commits, only migration 71 new) · CI 46090694070 + 46091903435 SUCCESS on the exact SHA · DeliGO 94e9cc9e, no staged changes
+PUSH=697dfd7e..f0a04f9d main (02:03:58 UTC) · main = testing-codex = f0a04f9d
+RAILWAY_PRODUCTION=DeliGO 1f008b22-80dc-4dd1-b3a0-c9620169a114 SUCCESS commitHash exact (pre-deploy on postgres.railway.internal: 71 found, ONLY 20261127200000_t7_retiros_personales applied; Ready in 71 ms; 94e9cc9e REMOVED, rollback-capable) · Review Moderation Expiry 08009a6e SUCCESS · Mesa Occupancy Cron b97c9d3a SUCCESS · chat en vivo 3831b1ce SUCCESS (/health 200)
+SMOKE=deligo.ar / 307 · /login 200 · /cliente 200 · /api/negocios 200 · auth, owner, cashier and the new withdrawal routes 401 without session · /api/testing/t24-physical-witness 404 · 0 5xx · Postgres: only old-container SSL EOF at the switchover
+CI_MAIN=46096212015 (job 140828017669) SUCCESS 92/92 — first CI run on main (T7 trigger)
+PENDING=operator read-only verifier production-verificacion-t7-f1.ps1 to close T7-F1
+```
+
 ## T7-F1 Retiros personales — Railway TESTING deploy (2026-11-28, Claude Code)
 
 ```text

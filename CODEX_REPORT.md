@@ -6,7 +6,14 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T7-F1 RETIROS PERSONALES · CERTIFICADA EN TESTING · ENSAYO DE PRODUCTION PASS · ESPERANDO AUTORIZACIÓN DE PUBLICACIÓN (2026-11-28)
+=== LATEST HANDOFF — T7-F1 RETIROS PERSONALES · PUBLICADA EN PRODUCTION (f0a04f9d) · ESPERANDO EL VERIFICADOR DE PRODUCTION PARA CERRAR (2026-11-28)
+
+PRODUCTION=main = testing-codex = f0a04f9d0658de3c246b9cf641d8b482a17c2ef8 · DeliGO 1f008b22 SUCCESS (sólo la migración 71 aplicada sobre la base original) · Review Expiry 08009a6e · Mesa Cron b97c9d3a · chat 3831b1ce · smoke OK · 0 5xx · CI de main 46096212015 92/92
+RESPALDO=deligo-production-pre-t7-f1-20261128T015520Z.dump (vigente al publicar: sin API ni escrituras de crons después del respaldo)
+SIGUIENTE_PASO=operador: production-verificacion-t7-f1.ps1 (solo lectura; PASS esperado) → cierre de T7-F1 → siguiente funcionalidad de T7: paridad de enlaces y QR de mesas
+PROHIBIDO=habilitar permisos de retiro automáticamente, transferir datos de TESTING, nuevas funcionalidades antes del cierre
+
+=== PRECEDING HANDOFF — T7-F1 RETIROS PERSONALES · CERTIFICADA EN TESTING · ENSAYO DE PRODUCTION PASS · ESPERANDO AUTORIZACIÓN DE PUBLICACIÓN (2026-11-28)
 
 CANDIDATA=f0a04f9d0658de3c246b9cf641d8b482a17c2ef8 (testing-codex; CI 46090694070 y post-despliegue 46091903435 verdes) · main = 697dfd7e · Production intacto
 TESTING=CERTIFICADA (operador + revisión de ChatGPT del verificador detallado): 7 retiros, 2 con movimiento de inventario, 1 reingreso, 0 reingresos sin salida previa, 0 devoluciones superiores a lo retirado, 0 retiros sin auditoría, 4/4 avisos al dueño, 0 ventas / egresos / movimientos financieros involuntarios, decisiones coherentes

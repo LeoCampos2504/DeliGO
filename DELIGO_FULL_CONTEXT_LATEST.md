@@ -1,4 +1,9 @@
-## LATEST UPDATE — T7-F1 CERTIFICADA EN TESTING · ENSAYO DE PRODUCTION PASS (2026-11-28)
+## LATEST UPDATE — T7-F1 PUBLICADA EN PRODUCTION (2026-11-28)
+
+- `main` = `testing-codex` = Production = `f0a04f9d`; DeliGO `1f008b22` con sólo la migración 71; servicios sanos;
+  CI de `main` verde. Falta el verificador de solo lectura del operador para cerrar T7-F1.
+
+## PRECEDING UPDATE — T7-F1 CERTIFICADA EN TESTING · ENSAYO DE PRODUCTION PASS (2026-11-28)
 
 - Certificación manual focalizada cerrada (operador + ChatGPT). Respaldo de Production pre-t7-f1 PASS y ensayo aislado
   de la migración 71 sobre esa copia: sólo la 71, 71/71 checksums, 1777 filas originales idénticas, 7 tablas nuevas
