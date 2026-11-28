@@ -168,6 +168,7 @@ jobs:
       - run: bun --no-env-file test src/lib/t7-f1-retiros-personales.integration.test.ts
       - run: bun --no-env-file test src/lib/t7-f1-retiros-personales-static-contract.test.ts src/lib/p2-t56-r3a-i2-wiring-static-contract.test.ts
       - run: bun --no-env-file test src/components/business/caja-retiro-personal.test.tsx
+      - run: bun --no-env-file test src/components/business/caja-tab.retiro-intento.test.tsx
       - run: bun --no-env-file test src/components/business/owner-retiros-personales.test.tsx
       # T4: Caja / Administración navigation (cart preserved, counters, guarded navigation) + tab gating.
       - run: bun --no-env-file test src/components/business/caja-administracion-static-contract.test.ts src/components/business/business-panel-tab-gating.test.ts

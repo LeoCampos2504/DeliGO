@@ -9,7 +9,7 @@
 // empleados de Caja. Nada de esto mueve dinero: no hay cobros ni descuentos de sueldo.
 
 import { useMemo, useState } from "react"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query"
 import { ChevronLeft, PackageMinus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -219,7 +219,13 @@ function ResumenGeneral({ r, onPersona }: { r: ResumenRetiros; onPersona: (p: Re
 function DetallePersona({ persona, limites, onVolver }: { persona: ResumenPersona; limites: { desde: Date; hasta: Date }; onVolver: () => void }) {
   const queryClient = useQueryClient()
   const qs = `desde=${encodeURIComponent(limites.desde.toISOString())}&hasta=${encodeURIComponent(limites.hasta.toISOString())}&persona=${encodeURIComponent(persona.clave)}`
-  const lista = useQuery<{ retiros: RetiroDueno[] }>({ queryKey: ["retiros-personales-lista", qs], queryFn: () => pedir(`${BASE}?${qs}`) })
+  // Detalle paginado (más recientes primero); los totales vienen del resumen del período completo.
+  const lista = useInfiniteQuery({
+    queryKey: ["retiros-personales-lista", qs],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => pedir<{ retiros: RetiroDueno[]; siguienteCursor: string | null }>(`${BASE}?${qs}${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ""}`),
+    getNextPageParam: (ultima) => ultima.siguienteCursor,
+  })
   const empleadoId = persona.tipo === "EMPLEADO" ? persona.clave.slice("EMPLEADO:".length) : null
   const historial = useQuery<{ decisiones: DecisionHistorial[] }>({ queryKey: ["retiros-personales-decisiones", empleadoId], enabled: Boolean(empleadoId), queryFn: () => pedir(`${BASE}/decisiones?empleadoId=${encodeURIComponent(empleadoId!)}`) })
   const [seleccion, setSeleccion] = useState<Set<string>>(new Set())
@@ -232,7 +238,7 @@ function DetallePersona({ persona, limites, onVolver }: { persona: ResumenPerson
     void queryClient.invalidateQueries({ queryKey: ["retiros-personales-resumen"] })
     void queryClient.invalidateQueries({ queryKey: ["retiros-personales-decisiones"] })
   }
-  const retiros = lista.data?.retiros ?? []
+  const retiros = lista.data?.pages.flatMap((pagina) => pagina.retiros) ?? []
   const seleccionados = retiros.filter((r) => seleccion.has(r.id))
   const elegibleSeleccion = seleccionados.reduce((s, r) => s + r.valorVigente, 0)
 
@@ -302,6 +308,13 @@ function DetallePersona({ persona, limites, onVolver }: { persona: ResumenPerson
             )
           })}
         </ul>
+      )}
+
+      {lista.hasNextPage && (
+        <div className="space-y-1 text-center" data-testid="retiros-ver-mas">
+          <p className="text-[11px] text-muted-foreground">Se muestran los {retiros.length} retiros más recientes. Los totales de arriba incluyen todo el período.</p>
+          <Button variant="outline" className="min-h-10 rounded-xl" disabled={lista.isFetchingNextPage} onClick={() => void lista.fetchNextPage()}>{lista.isFetchingNextPage ? "Cargando…" : "Ver más retiros"}</Button>
+        </div>
       )}
 
       {persona.tipo === "EMPLEADO" && empleadoId && (

@@ -374,6 +374,7 @@ async function registrarRetiroEnTx(
           costoUnitarioDecimal: l.costoUnitario,
           costoTotalDecimal: l.costoTotal,
           movioStock: clavesMovidas.has(`${l.item.productoId}:${l.item.varianteId ?? ""}`),
+          lineaDeVariante: Boolean(l.item.varianteId),
         })),
       },
     },
@@ -420,7 +421,16 @@ export interface ValoresRetiro {
   decisionVigenteId: string | null
 }
 
-export function valoresRetiro(r: Pick<RetiroCompleto, "estado" | "valorComercialDecimal" | "costoConocidoDecimal" | "devoluciones" | "decisionItems">): ValoresRetiro {
+/** Lo mínimo para calcular los valores vigentes (lo cumple un RetiroCompleto y la fila liviana del resumen). */
+export interface RetiroValoresInput {
+  estado: string
+  valorComercialDecimal: Prisma.Decimal
+  costoConocidoDecimal: Prisma.Decimal
+  devoluciones: ReadonlyArray<{ valorDecimal: Prisma.Decimal; costoConocidoDecimal: Prisma.Decimal }>
+  decisionItems: ReadonlyArray<{ vigente: boolean; asignadoDecimal: Prisma.Decimal; decisionId: string }>
+}
+
+export function valoresRetiro(r: RetiroValoresInput): ValoresRetiro {
   const valorDevuelto = addMoney(...r.devoluciones.map((d) => d.valorDecimal))
   const costoDevuelto = addMoney(...r.devoluciones.map((d) => d.costoConocidoDecimal))
   const item = r.decisionItems.find((i) => i.vigente)
@@ -565,58 +575,133 @@ function wherePersona(persona: string | undefined): Prisma.RetiroPersonalWhereIn
   return tipo === "EMPLEADO" ? { beneficiarioTipo: "EMPLEADO", beneficiarioEmpleadoId: id } : { beneficiarioTipo: "FAMILIAR", beneficiarioFamiliarId: id }
 }
 
-export async function listarRetiros(db: Db, negocioId: string, f: FiltroRetiros) {
-  return db.retiroPersonal.findMany({
-    where: { negocioId, createdAt: { gte: f.desde, lt: f.hasta }, ...(f.tipo ? { beneficiarioTipo: f.tipo } : {}), ...wherePersona(f.persona) },
-    include: RETIRO_INCLUDE,
-    orderBy: { createdAt: "desc" },
-    take: 2000,
-  })
+function whereFiltro(negocioId: string, f: FiltroRetiros): Prisma.RetiroPersonalWhereInput {
+  return { negocioId, createdAt: { gte: f.desde, lt: f.hasta }, ...(f.tipo ? { beneficiarioTipo: f.tipo } : {}), ...wherePersona(f.persona) }
 }
 
-export function resumirRetiros(retiros: ReadonlyArray<RetiroCompleto>) {
+/** Página del DETALLE (más recientes primero). Nunca se usa para totales: el resumen lee el período completo. */
+export const RETIRO_PAGINA = 100
+
+export async function listarRetirosPagina(db: Db, negocioId: string, f: FiltroRetiros, cursor: string | null) {
+  const filas = await db.retiroPersonal.findMany({
+    where: whereFiltro(negocioId, f),
+    include: RETIRO_INCLUDE,
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    take: RETIRO_PAGINA + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+  })
+  const hayMas = filas.length > RETIRO_PAGINA
+  const retiros = hayMas ? filas.slice(0, RETIRO_PAGINA) : filas
+  return { retiros, siguienteCursor: hayMas ? retiros[retiros.length - 1].id : null }
+}
+
+const RESUMEN_SELECT = {
+  id: true,
+  createdAt: true,
+  estado: true,
+  beneficiarioTipo: true,
+  beneficiarioEmpleadoId: true,
+  beneficiarioFamiliarId: true,
+  beneficiarioNombre: true,
+  valorComercialDecimal: true,
+  costoConocidoDecimal: true,
+  costoCompleto: true,
+  devoluciones: { select: { valorDecimal: true, costoConocidoDecimal: true } },
+  decisionItems: { where: { vigente: true }, select: { vigente: true, asignadoDecimal: true, decisionId: true } },
+} satisfies Prisma.RetiroPersonalSelect
+type RetiroResumenFila = Prisma.RetiroPersonalGetPayload<{ select: typeof RESUMEN_SELECT }>
+
+/** Tamaño de cada lote de lectura del resumen (memoria acotada; NO limita cuántos retiros se suman). */
+export const RETIRO_LOTE_RESUMEN = 1000
+
+/**
+ * Resumen del período COMPLETO: recorre todos los retiros elegibles en lotes ordenados (createdAt, id) dentro de UNA
+ * transacción de solo lectura REPEATABLE READ, así los totales y los agrupados por persona incluyen cada registro y
+ * son coherentes entre lotes. Ningún límite recorta los importes.
+ */
+export async function resumenRetirosPeriodo(db: Db, negocioId: string, f: FiltroRetiros) {
+  return db.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY")
+    const acc = nuevoAcumulador()
+    let cursor: string | null = null
+    for (;;) {
+      const lote: RetiroResumenFila[] = await tx.retiroPersonal.findMany({
+        where: whereFiltro(negocioId, f),
+        select: RESUMEN_SELECT,
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+        take: RETIRO_LOTE_RESUMEN,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      })
+      for (const r of lote) acumular(acc, r)
+      if (lote.length < RETIRO_LOTE_RESUMEN) break
+      cursor = lote[lote.length - 1].id
+    }
+    return cerrarAcumulador(acc)
+  }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 5000, timeout: 60000 })
+}
+
+type Persona = { clave: string; tipo: string; nombre: string; cantidad: number; valor: Prisma.Decimal; costo: Prisma.Decimal; decidido: Prisma.Decimal; pendiente: Prisma.Decimal; ultimo: Date }
+function nuevoAcumulador() {
   const cero = () => new Prisma.Decimal(0)
-  const porTipo: Record<BeneficiarioTipo, Prisma.Decimal> = { EMPLEADO: cero(), FAMILIAR: cero(), DUENO: cero() }
-  let valor = cero(), costo = cero(), decidido = cero(), pendiente = cero()
-  let vigentes = 0, anulados = 0, costoIncompleto = 0
-  const personas = new Map<string, { clave: string; tipo: string; nombre: string; cantidad: number; valor: Prisma.Decimal; costo: Prisma.Decimal; decidido: Prisma.Decimal; pendiente: Prisma.Decimal; ultimo: Date }>()
-  for (const r of retiros) {
-    const v = valoresRetiro(r)
-    if (r.estado === "ANULADO") anulados++
-    else vigentes++
-    if (r.estado !== "ANULADO" && !r.costoCompleto) costoIncompleto++
-    valor = valor.plus(v.valorVigente)
-    costo = costo.plus(v.costoVigente)
-    porTipo[r.beneficiarioTipo as BeneficiarioTipo] = porTipo[r.beneficiarioTipo as BeneficiarioTipo].plus(v.valorVigente)
-    const sinDecision = r.beneficiarioTipo === "EMPLEADO" && !v.decisionVigenteId ? v.valorVigente : cero()
-    decidido = decidido.plus(v.asignado)
-    pendiente = pendiente.plus(sinDecision)
-    const clave = claveBeneficiario(r)
-    const p = personas.get(clave) ?? { clave, tipo: r.beneficiarioTipo, nombre: r.beneficiarioNombre, cantidad: 0, valor: cero(), costo: cero(), decidido: cero(), pendiente: cero(), ultimo: r.createdAt }
-    if (r.createdAt >= p.ultimo) { p.nombre = r.beneficiarioNombre; p.ultimo = r.createdAt }
-    if (r.estado !== "ANULADO") p.cantidad++
-    p.valor = p.valor.plus(v.valorVigente)
-    p.costo = p.costo.plus(v.costoVigente)
-    p.decidido = p.decidido.plus(v.asignado)
-    p.pendiente = p.pendiente.plus(sinDecision)
-    personas.set(clave, p)
+  return {
+    porTipo: { EMPLEADO: cero(), FAMILIAR: cero(), DUENO: cero() } as Record<BeneficiarioTipo, Prisma.Decimal>,
+    valor: cero(), costo: cero(), decidido: cero(), pendiente: cero(),
+    vigentes: 0, anulados: 0, costoIncompleto: 0, leidos: 0,
+    personas: new Map<string, Persona>(),
   }
+}
+type Acumulador = ReturnType<typeof nuevoAcumulador>
+
+function acumular(acc: Acumulador, r: RetiroValoresInput & Pick<RetiroResumenFila, "createdAt" | "beneficiarioTipo" | "beneficiarioEmpleadoId" | "beneficiarioFamiliarId" | "beneficiarioNombre" | "costoCompleto">) {
+  const cero = new Prisma.Decimal(0)
+  const v = valoresRetiro(r)
+  acc.leidos++
+  if (r.estado === "ANULADO") acc.anulados++
+  else acc.vigentes++
+  if (r.estado !== "ANULADO" && !r.costoCompleto) acc.costoIncompleto++
+  acc.valor = acc.valor.plus(v.valorVigente)
+  acc.costo = acc.costo.plus(v.costoVigente)
+  acc.porTipo[r.beneficiarioTipo as BeneficiarioTipo] = acc.porTipo[r.beneficiarioTipo as BeneficiarioTipo].plus(v.valorVigente)
+  const sinDecision = r.beneficiarioTipo === "EMPLEADO" && !v.decisionVigenteId ? v.valorVigente : cero
+  acc.decidido = acc.decidido.plus(v.asignado)
+  acc.pendiente = acc.pendiente.plus(sinDecision)
+  const clave = claveBeneficiario(r)
+  const p = acc.personas.get(clave) ?? { clave, tipo: r.beneficiarioTipo, nombre: r.beneficiarioNombre, cantidad: 0, valor: cero, costo: cero, decidido: cero, pendiente: cero, ultimo: r.createdAt }
+  if (r.createdAt >= p.ultimo) { p.nombre = r.beneficiarioNombre; p.ultimo = r.createdAt }
+  if (r.estado !== "ANULADO") p.cantidad++
+  p.valor = p.valor.plus(v.valorVigente)
+  p.costo = p.costo.plus(v.costoVigente)
+  p.decidido = p.decidido.plus(v.asignado)
+  p.pendiente = p.pendiente.plus(sinDecision)
+  acc.personas.set(clave, p)
+}
+
+function cerrarAcumulador(acc: Acumulador) {
   const n = moneyToNumber
   return {
-    valorComercial: n(valor),
-    costoConocido: n(costo),
-    retirosConCostoIncompleto: costoIncompleto,
-    cantidadRetiros: vigentes,
-    cantidadAnulados: anulados,
-    porTipo: { EMPLEADO: n(porTipo.EMPLEADO), FAMILIAR: n(porTipo.FAMILIAR), DUENO: n(porTipo.DUENO) },
-    importeDecididoRecuperar: n(decidido),
-    importePendienteDecision: n(pendiente),
+    valorComercial: n(acc.valor),
+    costoConocido: n(acc.costo),
+    retirosConCostoIncompleto: acc.costoIncompleto,
+    cantidadRetiros: acc.vigentes,
+    cantidadAnulados: acc.anulados,
+    /** Cantidad de registros sumados (todos los del período): el resumen nunca es parcial. */
+    registrosIncluidos: acc.leidos,
+    porTipo: { EMPLEADO: n(acc.porTipo.EMPLEADO), FAMILIAR: n(acc.porTipo.FAMILIAR), DUENO: n(acc.porTipo.DUENO) },
+    importeDecididoRecuperar: n(acc.decidido),
+    importePendienteDecision: n(acc.pendiente),
     /** Esta entrega no registra cobros ni descuentos: no hay importe recuperado (nunca se deduce de la decisión). */
     importeRecuperadoRegistrado: null,
-    personas: [...personas.values()]
+    personas: [...acc.personas.values()]
       .sort((a, b) => b.valor.comparedTo(a.valor) || a.nombre.localeCompare(b.nombre))
       .map((p) => ({ clave: p.clave, tipo: p.tipo, nombre: p.nombre, cantidad: p.cantidad, valor: n(p.valor), costo: n(p.costo), decidido: n(p.decidido), pendiente: n(p.pendiente) })),
   }
+}
+
+/** Resumen de un conjunto ya cargado (mismo cálculo que el del período). */
+export function resumirRetiros(retiros: ReadonlyArray<RetiroCompleto>) {
+  const acc = nuevoAcumulador()
+  for (const r of retiros) acumular(acc, r)
+  return cerrarAcumulador(acc)
 }
 
 // ---------------------------------------------------------------------------
@@ -737,6 +822,9 @@ export async function historialDecisiones(db: Db, negocioId: string, empleadoId:
 // Anulación por error de registro / devolución física (dueño)
 // ---------------------------------------------------------------------------
 
+/** Misma regla que QUANTITY_PATTERN de F4-A / F4-B. */
+const RETIRO_CANTIDAD_PATTERN = /^\d{1,7}(\.\d{1,3})?$/
+
 export type DevolucionEntrada = { tipo: "ANULACION"; motivo: string } | { tipo: "DEVOLUCION"; motivo: string; lineas: Array<{ lineaId: string; cantidad: number }> }
 
 export function parseDevolucionBody(body: unknown): { ok: true; value: DevolucionEntrada } | { ok: false; error: string } {
@@ -753,10 +841,12 @@ export function parseDevolucionBody(body: unknown): { ok: true; value: Devolucio
   const vistos = new Set<string>()
   for (const raw of b.lineas as unknown[]) {
     const l = (raw ?? {}) as { lineaId?: unknown; cantidad?: unknown }
-    if (typeof l.lineaId !== "string" || !l.lineaId || typeof l.cantidad !== "number" || !Number.isFinite(l.cantidad) || l.cantidad <= 0) return { ok: false, error: "Cada línea requiere lineaId y una cantidad mayor a 0." }
+    // Misma regla de cantidades que las devoluciones de ventas (F4-A): hasta 7 enteros y 3 decimales, mayor a 0.
+    const texto = typeof l.cantidad === "number" && Number.isFinite(l.cantidad) ? String(l.cantidad) : typeof l.cantidad === "string" ? l.cantidad.trim() : ""
+    if (typeof l.lineaId !== "string" || !l.lineaId || !RETIRO_CANTIDAD_PATTERN.test(texto) || new Prisma.Decimal(texto).lte(0)) return { ok: false, error: "Ingresá una cantidad mayor a cero (hasta 3 decimales) para cada producto devuelto." }
     if (vistos.has(l.lineaId)) return { ok: false, error: "Hay líneas repetidas." }
     vistos.add(l.lineaId)
-    lineas.push({ lineaId: l.lineaId, cantidad: l.cantidad })
+    lineas.push({ lineaId: l.lineaId, cantidad: new Prisma.Decimal(texto).toNumber() })
   }
   return { ok: true, value: { tipo: "DEVOLUCION", motivo, lineas } }
 }
@@ -788,15 +878,15 @@ export async function registrarDevolucionRetiro(
       const retiro = await tx.retiroPersonal.findFirst({ where: { id: retiroId, negocioId }, include: RETIRO_INCLUDE })
       if (!retiro) return rechazo(404, "Retiro no encontrado.")
       if (retiro.estado !== "VIGENTE") return rechazo(409, "El retiro ya fue anulado.", "RETIRO_ANULADO")
-      const devuelto = new Map<string, number>()
+      const devuelto = new Map<string, Prisma.Decimal>()
       const valorDevueltoLinea = new Map<string, Prisma.Decimal>()
       const costoDevueltoLinea = new Map<string, Prisma.Decimal>()
       for (const d of retiro.devoluciones) for (const l of d.lineas) {
-        devuelto.set(l.retiroLineaId, (devuelto.get(l.retiroLineaId) ?? 0) + l.cantidad)
+        devuelto.set(l.retiroLineaId, (devuelto.get(l.retiroLineaId) ?? new Prisma.Decimal(0)).plus(String(l.cantidad)))
         valorDevueltoLinea.set(l.retiroLineaId, (valorDevueltoLinea.get(l.retiroLineaId) ?? new Prisma.Decimal(0)).plus(l.valorDecimal))
         if (l.costoDecimal) costoDevueltoLinea.set(l.retiroLineaId, (costoDevueltoLinea.get(l.retiroLineaId) ?? new Prisma.Decimal(0)).plus(l.costoDecimal))
       }
-      const restante = (lineaId: string, cantidad: number) => Math.max(0, cantidad - (devuelto.get(lineaId) ?? 0))
+      const restante = (lineaId: string, cantidad: number) => Prisma.Decimal.max(0, new Prisma.Decimal(String(cantidad)).minus(devuelto.get(lineaId) ?? 0)).toNumber()
       const pedidas = entrada.tipo === "ANULACION"
         ? retiro.lineas.filter((l) => restante(l.id, l.cantidad) > 1e-9).map((l) => ({ linea: l, cantidad: restante(l.id, l.cantidad) }))
         : entrada.lineas.map((p) => ({ linea: retiro.lineas.find((l) => l.id === p.lineaId), cantidad: p.cantidad }))
@@ -829,7 +919,9 @@ export async function registrarDevolucionRetiro(
       let reingresadas = 0
       for (const c of calculadas) {
         // Sólo vuelve al stock lo que salió del stock en el retiro (nunca stock que no se descontó).
-        const reingreso = c.linea.movioStock && c.linea.productoId
+        // Una línea de variante cuya variante ya no existe (FK SET NULL) nunca reingresa al producto padre.
+        const varianteBorrada = c.linea.lineaDeVariante && !c.linea.productoVarianteId
+        const reingreso = c.linea.movioStock && c.linea.productoId && !varianteBorrada
           ? await reingresarStockRetiroPersonal(tx, { negocioId, devolucionRetiroId: devolucion.id, key: { productoId: c.linea.productoId, productoVarianteId: c.linea.productoVarianteId }, cantidad: c.cantidad, motivo: entrada.tipo === "ANULACION" ? "Anulación de retiro personal" : "Devolución de retiro personal" })
           : null
         if (reingreso?.resultado === "REINGRESADO") reingresadas++

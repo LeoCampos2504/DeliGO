@@ -7,8 +7,12 @@
 // Visualmente está junto a los medios de pago, pero NO es un medio de pago: envía a su propio endpoint, que registra
 // una salida no comercial de mercadería (sin venta, sin cobro, sin dinero). El servidor calcula los valores; esta
 // pantalla sólo muestra el total que ya veía el cajero y lo envía para detectar precios desactualizados.
-// Idempotencia: una clave por intento; se reutiliza mientras el contenido no cambie (un reintento tras un error de
-// red nunca registra dos veces). El carrito se vacía sólo después de una confirmación exitosa.
+// Idempotencia (mismo criterio que el cobro de Caja, F10-B0 D9, con almacenamiento PROPIO): el intento — clave +
+// contenido exacto + carrito — se guarda en sessionStorage, por negocio y contexto operativo, ANTES de enviarlo. Una
+// respuesta incierta (sin respuesta o 5xx) lo conserva: cerrar, reabrir o recargar vuelve al MISMO intento, que sólo
+// se reenvía tal cual (misma clave, mismo contenido), y mientras exista la Caja no cobra una venta con ese carrito.
+// Sólo una respuesta definitiva lo descarta. El carrito se vacía sólo después de la confirmación del servidor. No se
+// guardan costos, decisiones ni credenciales.
 
 import { useMemo, useState } from "react"
 import { useQuery } from "@tanstack/react-query"
@@ -18,7 +22,8 @@ import { Input } from "@/components/ui/input"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { cn, formatPrice } from "@/lib/utils"
 import { cartLineSubtotal, cartTotal, type CartLine } from "@/lib/caja-venta"
-import { newIdempotencyKey } from "@/lib/caja-checkout-attempt"
+import { classifyCheckoutResponse, newIdempotencyKey } from "@/lib/caja-checkout-attempt"
+import { isValidVentaIdempotencyKey } from "@/lib/caja-venta"
 import {
   ETIQUETA_BENEFICIARIO,
   FAMILIAR_NOMBRE_MAX,
@@ -61,6 +66,56 @@ export interface RetiroRegistrado {
   cantidadLineas: number
 }
 
+/** Intento de retiro enviado y todavía sin respuesta definitiva. */
+export interface PendingRetiroAttempt {
+  key: string
+  /** Cuerpo EXACTO enviado (beneficiario, productos, cantidades, observaciones, total visto). */
+  canonical: string
+  /** Carrito del intento (para restaurarlo al recargar). */
+  cart: CartLine[]
+  beneficiarioNombre: string
+  createdAt: number
+}
+
+const RETIRO_ATTEMPT_PREFIX = "deligo:caja:retiro-attempt:v1:"
+function sesion(): Storage | null {
+  try {
+    return typeof window !== "undefined" ? window.sessionStorage : null
+  } catch {
+    return null
+  }
+}
+
+/** Lee el intento pendiente de ESTE negocio y contexto operativo (scope); null si no hay o no es válido. */
+export function readPendingRetiro(scope: string): PendingRetiroAttempt | null {
+  try {
+    const raw = sesion()?.getItem(RETIRO_ATTEMPT_PREFIX + scope)
+    if (!raw) return null
+    const a = JSON.parse(raw) as Partial<PendingRetiroAttempt>
+    const body = typeof a.canonical === "string" ? (JSON.parse(a.canonical) as { confirmado?: unknown; items?: unknown }) : null
+    if (!isValidVentaIdempotencyKey(a.key) || !body || body.confirmado !== true || !Array.isArray(body.items) || !Array.isArray(a.cart) || a.cart.length === 0 || typeof a.beneficiarioNombre !== "string") return null
+    return a as PendingRetiroAttempt
+  } catch {
+    return null
+  }
+}
+export function writePendingRetiro(scope: string, attempt: PendingRetiroAttempt): void {
+  try {
+    sesion()?.setItem(RETIRO_ATTEMPT_PREFIX + scope, JSON.stringify(attempt))
+  } catch {
+    // sin almacenamiento: el intento en memoria protege los reintentos de esta pantalla
+  }
+}
+export function clearPendingRetiro(scope: string): void {
+  try {
+    sesion()?.removeItem(RETIRO_ATTEMPT_PREFIX + scope)
+  } catch {
+    // ignorar
+  }
+}
+
+export const RETIRO_INCIERTO_MENSAJE = "No sabemos si el retiro se registró. Tocá Confirmar de nuevo: si ya estaba registrado, no se duplica."
+
 type Seleccion = { tipo: BeneficiarioTipo; empleadoId: string; familiarId: string; nuevoFamiliar: string }
 
 /** Cuerpo del POST (sin precios ni costos). Puro para poder probarlo. */
@@ -83,6 +138,8 @@ export function RetiroPersonalDialog({
   retirosUrl,
   cart,
   contexto,
+  pendiente,
+  onPendienteChange,
   onClose,
   onRegistrado,
   onPreciosDesactualizados,
@@ -90,56 +147,63 @@ export function RetiroPersonalDialog({
 }: {
   retirosUrl: string
   cart: ReadonlyArray<CartLine>
-  contexto: RetiroContexto
+  /** null sólo cuando se reabre un intento pendiente (no hace falta elegir nada). */
+  contexto: RetiroContexto | null
+  /** Intento enviado sin respuesta definitiva: el formulario sólo permite reenviarlo tal cual o descartarlo. */
+  pendiente: PendingRetiroAttempt | null
+  onPendienteChange: (attempt: PendingRetiroAttempt | null) => void
   onClose: () => void
-  onRegistrado: (retiro: RetiroRegistrado, replayed: boolean) => void
+  onRegistrado: (retiro: RetiroRegistrado, replayed: boolean, cartEnviado: ReadonlyArray<CartLine>) => void
   onPreciosDesactualizados?: () => void
   onAccessLost?: (status: number) => void
 }) {
-  const [sel, setSel] = useState<Seleccion>({ tipo: "EMPLEADO", empleadoId: contexto.propioEmpleadoId ?? "", familiarId: "", nuevoFamiliar: "" })
+  const [sel, setSel] = useState<Seleccion>({ tipo: "EMPLEADO", empleadoId: contexto?.propioEmpleadoId ?? "", familiarId: "", nuevoFamiliar: "" })
   const [observaciones, setObservaciones] = useState("")
   const [confirmo, setConfirmo] = useState(false)
   const [enviando, setEnviando] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Clave del intento ligada al contenido exacto: el mismo contenido reintenta con la misma clave.
-  const [intento, setIntento] = useState<{ key: string; canonical: string } | null>(null)
+  const [error, setError] = useState<string | null>(pendiente ? RETIRO_INCIERTO_MENSAJE : null)
   const total = cartTotal(cart)
+  const familiares = contexto?.familiares ?? []
 
   const familiarExistente = useMemo(() => {
     const n = normalizarNombreFamiliar(sel.nuevoFamiliar)
-    return n ? contexto.familiares.find((f) => normalizarNombreFamiliar(f.nombre) === n) ?? null : null
-  }, [sel.nuevoFamiliar, contexto.familiares])
+    return n ? familiares.find((f) => normalizarNombreFamiliar(f.nombre) === n) ?? null : null
+  }, [sel.nuevoFamiliar, familiares])
 
   // Un nombre igual a uno registrado (sin distinguir mayúsculas ni acentos) NO se asume como la misma persona: el
   // cajero elige al registrado o escribe un nombre que los distinga. El servidor aplica la misma regla.
   const beneficiarioListo =
-    sel.tipo === "DUENO" ? Boolean(contexto.dueno)
+    sel.tipo === "DUENO" ? Boolean(contexto?.dueno)
     : sel.tipo === "EMPLEADO" ? Boolean(sel.empleadoId)
     : Boolean(sel.familiarId) || (!familiarExistente && limpiarNombreFamiliar(sel.nuevoFamiliar).length > 0 && limpiarNombreFamiliar(sel.nuevoFamiliar).length <= FAMILIAR_NOMBRE_MAX)
 
-  async function confirmar() {
+  const nombreBeneficiario = () =>
+    sel.tipo === "DUENO" ? contexto?.dueno?.nombre ?? "Dueño"
+    : sel.tipo === "EMPLEADO" ? contexto?.empleados.find((e) => e.id === sel.empleadoId)?.nombre ?? "Empleado"
+    : sel.familiarId ? familiares.find((f) => f.id === sel.familiarId)?.nombre ?? "Familiar"
+    : limpiarNombreFamiliar(sel.nuevoFamiliar)
+
+  /** Envía un intento ya guardado. Sólo una respuesta DEFINITIVA lo descarta; una incierta lo conserva. */
+  async function enviar(attempt: PendingRetiroAttempt) {
     setError(null)
-    const body = cuerpoRetiro(cart, sel, observaciones)
-    const canonical = JSON.stringify(body)
-    const key = intento && intento.canonical === canonical ? intento.key : newIdempotencyKey()
-    setIntento({ key, canonical })
     setEnviando(true)
     try {
-      if (typeof navigator !== "undefined" && navigator.onLine === false) throw new Error("Sin conexión: el retiro no se registró. Conectate y volvé a confirmar.")
       let res: Response
       try {
-        res = await fetch(retirosUrl, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key }, body: canonical })
+        res = await fetch(retirosUrl, { method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": attempt.key }, body: attempt.canonical })
       } catch {
-        throw new Error("No sabemos si el retiro se registró (falló la conexión). Confirmá de nuevo: si ya estaba registrado, no se duplica.")
+        throw new Error(RETIRO_INCIERTO_MENSAJE)
       }
-      const json = (await res.json().catch(() => ({}))) as { retiro?: RetiroRegistrado; error?: string; code?: string; familiar?: { id: string; nombre: string } }
+      const json = (await res.json().catch(() => ({}))) as { retiro?: RetiroRegistrado; error?: string; code?: string }
       if (res.status === 401 || res.status === 403) onAccessLost?.(res.status)
-      if (res.ok && json.retiro) {
-        onRegistrado(json.retiro, res.headers.get("Idempotency-Replayed") === "true")
+      const outcome = classifyCheckoutResponse(res.status, json.code)
+      if (outcome === "success" && json.retiro) {
+        onPendienteChange(null)
+        onRegistrado(json.retiro, res.headers.get("Idempotency-Replayed") === "true", attempt.cart)
         return
       }
-      if (res.status >= 500) throw new Error("No sabemos si el retiro se registró. Confirmá de nuevo: si ya estaba registrado, no se duplica.")
-      setIntento(null) // rechazo definitivo: no se registró nada
+      if (outcome === "uncertain" || outcome === "success") throw new Error(RETIRO_INCIERTO_MENSAJE)
+      onPendienteChange(null) // rechazo definitivo: con esta clave no quedó nada registrado
       if (json.code === "PRECIOS_CAMBIARON") onPreciosDesactualizados?.()
       throw new Error(json.error ?? "No se pudo registrar el retiro.")
     } catch (e) {
@@ -148,6 +212,53 @@ export function RetiroPersonalDialog({
       setEnviando(false)
     }
   }
+
+  async function confirmar() {
+    setError(null)
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError("Sin conexión: el retiro no se registró. Conectate y volvé a confirmar.")
+      return
+    }
+    const body = cuerpoRetiro(cart, sel, observaciones)
+    const attempt: PendingRetiroAttempt = { key: newIdempotencyKey(), canonical: JSON.stringify(body), cart: cart.map((l) => ({ ...l })), beneficiarioNombre: nombreBeneficiario(), createdAt: Date.now() }
+    onPendienteChange(attempt) // guardado ANTES de enviar: una respuesta perdida nunca pierde la clave
+    await enviar(attempt)
+  }
+
+  if (pendiente) {
+    const totalPendiente = cartTotal(pendiente.cart)
+    return (
+      <Dialog open onOpenChange={(open) => !open && !enviando && onClose()}>
+        <DialogContent className="max-w-sm sm:max-w-md rounded-2xl max-h-[90vh] overflow-y-auto" data-testid="retiro-personal-dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><PackageMinus className="h-5 w-5" /> Retiro personal sin confirmar</DialogTitle>
+            <DialogDescription className="text-amber-800 dark:text-amber-200 font-medium">{RETIRO_AVISO_SIN_DINERO}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm" data-testid="retiro-pendiente">
+            <p>Para: <span className="font-semibold">{pendiente.beneficiarioNombre}</span></p>
+            <ul className="divide-y rounded-xl border text-xs">
+              {pendiente.cart.map((l) => (
+                <li key={`${l.productoId}:${l.varianteId ?? ""}`} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                  <span className="min-w-0 truncate">{l.cantidad} × {l.nombre}{l.varianteNombre ? ` — ${l.varianteNombre}` : ""}</span>
+                  <span className="shrink-0 tabular-nums">{formatPrice(cartLineSubtotal(l))}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="font-semibold">Valor comercial {formatPrice(totalPendiente)}</p>
+            {error && <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200" role="alert">{error}</p>}
+            <Button data-testid="retiro-reintentar" className="w-full h-11 rounded-xl font-bold" disabled={enviando} onClick={() => void enviar(pendiente)}>
+              {enviando ? "Confirmando…" : "Confirmar de nuevo"}
+            </Button>
+            <button type="button" data-testid="retiro-descartar" disabled={enviando} className="w-full text-xs font-semibold underline underline-offset-2" onClick={() => { onPendienteChange(null); onClose() }}>
+              Descartar este intento (si ya se registró, el dueño lo verá en Retiros personales)
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  if (!contexto) return null
 
   const tipos: BeneficiarioTipo[] = ["EMPLEADO", "FAMILIAR", "DUENO"]
   return (

@@ -129,3 +129,35 @@ describe("T7-F1 — migración aditiva", () => {
     expect(dirs.at(-2)).toBe("20261127120000_f10_d1_conciliacion_recupero_egresos")
   })
 })
+
+describe("T7-F1 — revisión independiente (correcciones)", () => {
+  test("el resumen recorre el período completo en lotes; el límite sólo existe en el detalle paginado", () => {
+    const start = SERVICE.indexOf("export async function resumenRetirosPeriodo(")
+    const fn = SERVICE.slice(start, SERVICE.indexOf("\n}\n", start))
+    expect(fn).toContain("take: RETIRO_LOTE_RESUMEN")
+    expect(fn).toContain("if (lote.length < RETIRO_LOTE_RESUMEN) break")
+    expect(fn).toContain("cursor = lote[lote.length - 1].id")
+    expect(fn).toContain("SET TRANSACTION READ ONLY")
+    expect(SERVICE).not.toMatch(/take:\s*2000/)
+    expect(HTTP).toContain("resumen: await resumenRetirosPeriodo(db, negocioId, f.value)")
+    expect(HTTP).toContain("siguienteCursor: pagina.siguienteCursor")
+  })
+
+  test("una línea de variante borrada nunca reingresa al producto padre", () => {
+    expect(SERVICE).toContain("const varianteBorrada = c.linea.lineaDeVariante && !c.linea.productoVarianteId")
+    expect(SERVICE).toContain("c.linea.movioStock && c.linea.productoId && !varianteBorrada")
+    expect(SERVICE).toContain("lineaDeVariante: Boolean(l.item.varianteId)")
+    expect(MIGRATION).toContain('AND ("lineaDeVariante" OR "productoVarianteId" IS NULL)')
+  })
+
+  test("el intento de retiro usa su propio almacenamiento y el mecanismo de ventas no se modificó", () => {
+    const DIALOG = read("src/components/business/caja-retiro-personal.tsx")
+    const TAB = read("src/components/business/caja-tab.tsx")
+    expect(DIALOG).toContain('const RETIRO_ATTEMPT_PREFIX = "deligo:caja:retiro-attempt:v1:"')
+    expect(DIALOG.indexOf("onPendienteChange(attempt) // guardado ANTES de enviar")).toBeLessThan(DIALOG.indexOf("await enviar(attempt)"))
+    expect(DIALOG).toContain("classifyCheckoutResponse(res.status, json.code)")
+    expect(TAB).toContain("if (!seleccion && pendingRetiro) {")
+    expect(TAB).toContain("readPendingRetiro(source.attemptScope)")
+    expect(read("src/lib/caja-checkout-attempt.ts")).not.toMatch(/retiro/i)
+  })
+})

@@ -491,3 +491,85 @@ describe("T7-F1 — resumen, decisiones, anulaciones y devoluciones", () => {
     await expect(enPromesa(db.movimientoInventario.create({ data: { negocioId: s.n, productoId: s.conStock.id, tipo: "VENTA", cantidad: 1, stockAntes: 1, stockDespues: 0, retiroPersonalId: r.body.retiro.id } }))).rejects.toThrow()
   })
 })
+
+describe("T7-F1 — revisión: resumen completo, variante borrada y reglas de cantidad", () => {
+  ephemeralTest("más de 2.000 retiros: el resumen suma TODOS los del período y el detalle pagina sin perder ni repetir", async () => {
+    const s = await escenario()
+    const base = Date.now() - 3_600_000
+    const fila = (i: number, empleado: boolean) => ({
+      negocioId: s.n,
+      beneficiarioTipo: empleado ? "EMPLEADO" : "DUENO",
+      beneficiarioEmpleadoId: empleado ? s.mozo.empleado.id : null,
+      beneficiarioNombre: empleado ? "Mozo Carlos" : s.negocio.nombre,
+      registradoPorTipo: "NEGOCIO",
+      registradoPorNombre: s.negocio.nombre,
+      valorComercialDecimal: empleado ? "10.00" : "7.50",
+      costoConocidoDecimal: empleado ? "6.00" : "0.00",
+      costoCompleto: empleado,
+      cantidadLineas: 1,
+      idempotencyKey: randomUUID(),
+      idempotencyFingerprint: "volumen",
+      createdAt: new Date(base + i),
+    })
+    await db.retiroPersonal.createMany({ data: Array.from({ length: 1200 }, (_, i) => fila(i, true)) })
+    await db.retiroPersonal.createMany({ data: Array.from({ length: 850 }, (_, i) => fila(1200 + i, false)) })
+    const r = (await s.resumen()).body.resumen
+    expect([r.registrosIncluidos, r.cantidadRetiros, r.valorComercial, r.costoConocido, r.porTipo, r.importePendienteDecision, r.retirosConCostoIncompleto])
+      .toEqual([2050, 2050, 12000 + 6375, 7200, { EMPLEADO: 12000, FAMILIAR: 0, DUENO: 6375 }, 12000, 850])
+    const mozo = r.personas.find((x: any) => x.clave === `EMPLEADO:${s.mozo.empleado.id}`)
+    expect([mozo.cantidad, mozo.valor, mozo.costo]).toEqual([1200, 12000, 7200])
+    expect((await s.resumen(`&persona=EMPLEADO:${s.mozo.empleado.id}`)).body.resumen.valorComercial).toBe(12000)
+    // detalle: páginas explícitas de 100, sin huecos ni repetidos
+    const vistos = new Set<string>()
+    let cursor: string | null = null
+    let paginas = 0
+    do {
+      const pagina = await s.lista(cursor ? `&cursor=${cursor}` : "")
+      expect(pagina.status).toBe(200)
+      expect(pagina.body.retiros.length).toBeLessThanOrEqual(100)
+      for (const x of pagina.body.retiros) { expect(vistos.has(x.id)).toBe(false); vistos.add(x.id) }
+      cursor = pagina.body.siguienteCursor
+      paginas++
+    } while (cursor)
+    expect([vistos.size, paginas]).toEqual([2050, 21])
+    expect((await s.lista("&cursor=no valido")).status).toBe(400)
+  })
+
+  ephemeralTest("devolución de una línea cuya variante fue borrada: nunca reingresa stock al producto padre", async () => {
+    const s = await escenario()
+    await db.producto.update({ where: { id: s.remera.id }, data: { controlStock: true, stockCantidad: 7 } })
+    const r = await s.retiroOwner({ beneficiario: DUENO, items: [{ productoId: s.remera.id, varianteId: s.roja.id, cantidad: 2 }] })
+    expect(r.status).toBe(201)
+    const lineaId = r.body.retiro.lineas[0].id
+    await db.productoVariante.delete({ where: { id: s.roja.id } })
+    const linea = await db.retiroPersonalLinea.findUniqueOrThrow({ where: { id: lineaId } })
+    expect([linea.lineaDeVariante, linea.productoVarianteId, linea.varianteNombre, linea.productoId]).toEqual([true, null, "Roja", s.remera.id])
+    const dev = await s.devolver(r.body.retiro.id, { tipo: "DEVOLUCION", motivo: "Devolvió una", lineas: [{ lineaId, cantidad: 1 }] })
+    expect(dev.status).toBe(201)
+    expect((await db.producto.findUniqueOrThrow({ where: { id: s.remera.id } })).stockCantidad).toBe(7) // el padre no recibe nada
+    expect(await db.movimientoInventario.count({ where: { negocioId: s.n, tipo: "RETIRO_PERSONAL_REINGRESO" } })).toBe(0)
+    expect((await db.devolucionRetiroLinea.findFirstOrThrow({ where: { retiroLineaId: lineaId } })).reingresoStock).toBe(false)
+    // una línea de producto nunca puede apuntar a una variante (CHECK)
+    await expect(enPromesa(db.retiroPersonalLinea.update({ where: { id: lineaId }, data: { lineaDeVariante: false, productoVarianteId: s.azul.id } }))).rejects.toThrow()
+  })
+
+  ephemeralTest("cantidades de devolución: mismas reglas que las ventas (> 0, hasta 3 decimales), comparación exacta del remanente", async () => {
+    const s = await escenario()
+    const r = await s.retiroOwner({ beneficiario: DUENO, items: [{ productoId: s.conStock.id, cantidad: 1.5 }] })
+    expect(r.status).toBe(201)
+    expect((await s.stock()).yerba).toBe(8.5)
+    const id = r.body.retiro.id
+    const lineaId = r.body.retiro.lineas[0].id
+    for (const cantidad of [0, -1, 0.0001, "1.0001", "abc", "12345678"]) {
+      expect({ cantidad, status: (await s.devolver(id, { tipo: "DEVOLUCION", motivo: "x", lineas: [{ lineaId, cantidad }] })).status }).toEqual({ cantidad, status: 400 })
+    }
+    expect((await s.devolver(id, { tipo: "DEVOLUCION", motivo: "media", lineas: [{ lineaId, cantidad: "0.5" }] })).status).toBe(201)
+    expect((await s.stock()).yerba).toBe(9)
+    expect((await s.devolver(id, { tipo: "DEVOLUCION", motivo: "de más", lineas: [{ lineaId, cantidad: 1.001 }] })).body.code).toBe("DEVOLUCION_EXCEDE_RETIRADO")
+    const final = await s.devolver(id, { tipo: "DEVOLUCION", motivo: "el resto", lineas: [{ lineaId, cantidad: 1 }] })
+    expect(final.status).toBe(201)
+    expect([final.body.retiro.valorVigente, final.body.retiro.valorDevuelto, final.body.retiro.lineas[0].devuelto]).toEqual([0, 1500, 1.5])
+    expect((await s.stock()).yerba).toBe(10)
+    expect((await s.devolver(id, { tipo: "DEVOLUCION", motivo: "otra", lineas: [{ lineaId, cantidad: 0.001 }] })).body.code).toBe("DEVOLUCION_EXCEDE_RETIRADO")
+  })
+})

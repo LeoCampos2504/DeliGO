@@ -70,7 +70,7 @@ import { CajaCambiosConfig } from "@/components/business/caja-cambios-config"
 import { OwnerCajaEgresos, ResumenEgresosHoy, type EgresosHoy } from "@/components/business/owner-caja-egresos"
 import { OwnerProveedores } from "@/components/business/owner-proveedores"
 import { OwnerCompras, comprasQueryKey } from "@/components/business/owner-compras"
-import { RetiroPersonalDialog, retiroContextoQueryKey, useRetiroContexto } from "@/components/business/caja-retiro-personal"
+import { clearPendingRetiro, readPendingRetiro, RetiroPersonalDialog, retiroContextoQueryKey, useRetiroContexto, writePendingRetiro, type PendingRetiroAttempt } from "@/components/business/caja-retiro-personal"
 import { OwnerRetirosPersonales } from "@/components/business/owner-retiros-personales"
 import {
   addCartLine,
@@ -444,13 +444,20 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment,
   // same cart, same key — confirming again recovers the sale, never sells twice.
   // F4-C5: in selection mode (exchange / linked sale picker) the view never reads, keeps or sends a checkout attempt.
   const [pendingAttempt, setPendingAttempt] = useState<PendingCheckoutAttempt | null>(() => (seleccion ? null : readPendingAttempt(source.attemptScope)))
-  const [cart, setCart] = useState<CartLine[]>(() => seleccion?.inicial ?? pendingAttempt?.cart ?? [])
+  // T7-F1: a personal withdrawal sent without a definitive answer (own storage, same scope as the sale attempt).
+  const [pendingRetiro, setPendingRetiro] = useState<PendingRetiroAttempt | null>(() => (seleccion ? null : readPendingRetiro(source.attemptScope)))
+  const [cart, setCart] = useState<CartLine[]>(() => seleccion?.inicial ?? pendingAttempt?.cart ?? pendingRetiro?.cart ?? [])
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [checkoutOpen, setCheckoutOpen] = useState(false)
   const [successSale, setSuccessSale] = useState<VentaResumen | null>(null)
   // T7-F1: personal withdrawal of the SAME cart (never a sale; its own endpoint and rules).
   const [retiroOpen, setRetiroOpen] = useState(false)
   const retiroContexto = useRetiroContexto(source.retirosUrl, !seleccion)
+  const guardarPendingRetiro = useCallback((attempt: PendingRetiroAttempt | null) => {
+    setPendingRetiro(attempt)
+    if (attempt) writePendingRetiro(source.attemptScope, attempt)
+    else clearPendingRetiro(source.attemptScope)
+  }, [source.attemptScope])
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -772,6 +779,11 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment,
   )
 
   function openCheckout() {
+    // T7-F1: an uncertain withdrawal is never turned into a sale — reopen it (retry as-is or discard) first.
+    if (!seleccion && pendingRetiro) {
+      setRetiroOpen(true)
+      return
+    }
     if (seleccion) {
       if (cart.length === 0) return
       setMobileCartOpen(false)
@@ -880,6 +892,13 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment,
 
   const productGrid = (
     <>
+      {pendingRetiro && !retiroOpen && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" role="status" data-testid="retiro-pendiente-banner">
+          <p className="font-semibold">Hay un retiro personal sin confirmar (para {pendingRetiro.beneficiarioNombre}).</p>
+          <p className="mt-0.5">Abrilo y tocá Confirmar de nuevo: si ya se registró, no se duplica.</p>
+          <button type="button" onClick={() => setRetiroOpen(true)} className="mt-1 font-semibold underline underline-offset-2">Revisar el retiro</button>
+        </div>
+      )}
       {pendingAttempt && !saleMutation.isPending && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200" role="status">
           <p className="font-semibold">Hay un cobro sin confirmar ({pendingAttempt.metodoPago === "EFECTIVO" ? "Efectivo" : pendingAttempt.metodoPago === "TRANSFERENCIA" ? "Transferencia" : "Otro"}).</p>
@@ -1021,23 +1040,27 @@ export function VenderView({ negocioId, source: sourceProp, ownerSaleAssignment,
           onClose={() => setCheckoutOpen(false)}
           onConfirm={(metodo) => saleMutation.mutate(metodo)}
           loading={saleMutation.isPending}
-          onRetiroPersonal={retiroContexto.data && source.retirosUrl && !retryingPendingAttempt && !pendingAttempt ? () => { setCheckoutOpen(false); setRetiroOpen(true) } : undefined}
+          onRetiroPersonal={retiroContexto.data && source.retirosUrl && !retryingPendingAttempt && !pendingAttempt && !pendingRetiro ? () => { setCheckoutOpen(false); setRetiroOpen(true) } : undefined}
         />
       )}
 
-      {retiroOpen && retiroContexto.data && source.retirosUrl && (
+      {retiroOpen && source.retirosUrl && (pendingRetiro || retiroContexto.data) && (
         <RetiroPersonalDialog
           retirosUrl={source.retirosUrl}
           cart={cart}
-          contexto={retiroContexto.data}
+          contexto={retiroContexto.data ?? null}
+          pendiente={pendingRetiro}
+          onPendienteChange={guardarPendingRetiro}
           onClose={() => setRetiroOpen(false)}
           onAccessLost={source.onAccessLost}
           onPreciosDesactualizados={() => { setRetiroOpen(false); void queryClient.invalidateQueries({ queryKey: source.productosQueryKey }) }}
-          onRegistrado={(retiro, replayed) => {
-            // The cart is cleared ONLY after the server confirmed the withdrawal.
+          onRegistrado={(retiro, replayed, cartEnviado) => {
+            // The cart is cleared ONLY after the server confirmed the withdrawal, and only if it is still the cart
+            // that was withdrawn (a retried attempt never discards products added afterwards).
             setRetiroOpen(false)
             setMobileCartOpen(false)
-            setCart([])
+            const firma = (lineas: ReadonlyArray<CartLine>) => JSON.stringify(lineas.map((l) => [l.productoId, l.varianteId ?? null, l.cantidad]))
+            setCart((actual) => (firma(actual) === firma(cartEnviado) ? [] : actual))
             toast.success(replayed ? "El retiro ya estaba registrado: no se registró dos veces." : `Retiro personal registrado para ${retiro.beneficiarioNombre} · ${formatPrice(retiro.valorComercial)}. No ingresó dinero a Caja.`)
             void queryClient.invalidateQueries({ queryKey: source.productosQueryKey })
             void queryClient.invalidateQueries({ queryKey: retiroContextoQueryKey(source.retirosUrl ?? "") })

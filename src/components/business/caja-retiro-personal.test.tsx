@@ -11,7 +11,7 @@ afterAll(() => GlobalRegistrator.unregister())
 const React = await import("react")
 const { createRoot } = await import("react-dom/client")
 const { act } = React
-const { RetiroPersonalDialog, cuerpoRetiro } = await import("./caja-retiro-personal")
+const { RetiroPersonalDialog, cuerpoRetiro, readPendingRetiro, writePendingRetiro, clearPendingRetiro } = await import("./caja-retiro-personal")
 const { RETIRO_AVISO_SIN_DINERO, normalizarNombreFamiliar } = await import("@/lib/retiros-personales")
 const originalFetch = globalThis.fetch
 
@@ -30,6 +30,7 @@ let posts: Array<{ key: string | null; body: Record<string, any> }> = []
 let respuesta: () => Response | Promise<Response> = () => new Response("{}", { status: 500 })
 
 beforeEach(() => {
+  window.sessionStorage.clear()
   posts = []
   globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
     posts.push({ key: new Headers(init?.headers).get("Idempotency-Key"), body: JSON.parse(String(init?.body)) })
@@ -47,17 +48,27 @@ function setValue(el: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
 }
 async function click(el: HTMLElement | null) { await act(async () => { el!.click() }); await flush() }
 
-async function render() {
+const SCOPE = "neg-test"
+/** Host mínimo: guarda el intento pendiente como lo hace VenderView (sessionStorage por scope). */
+function Host({ carrito, onRegistrado, onClose }: { carrito: typeof cart; onRegistrado: (r: { id: string }, replayed: boolean) => void; onClose: () => void }) {
+  const [pendiente, setPendiente] = React.useState(() => readPendingRetiro(SCOPE))
+  return React.createElement(RetiroPersonalDialog, {
+    retirosUrl: "/api/retiros", cart: carrito, contexto, pendiente,
+    onPendienteChange: (a: any) => { setPendiente(a); if (a) writePendingRetiro(SCOPE, a); else clearPendingRetiro(SCOPE) },
+    onClose, onRegistrado,
+  })
+}
+async function render(carrito = cart) {
   const registrados: Array<{ id: string; replayed: boolean }> = []
   let cerrado = false
   const container = document.createElement("div")
   document.body.appendChild(container)
   const root = createRoot(container)
   await act(async () => {
-    root.render(React.createElement(RetiroPersonalDialog, { retirosUrl: "/api/retiros", cart, contexto, onClose: () => { cerrado = true }, onRegistrado: (r: { id: string }, replayed: boolean) => registrados.push({ id: r.id, replayed }) }))
+    root.render(React.createElement(Host, { carrito, onClose: () => { cerrado = true }, onRegistrado: (r: { id: string }, replayed: boolean) => registrados.push({ id: r.id, replayed }) }))
   })
   await flush()
-  return { registrados, cerrado: () => cerrado }
+  return { registrados, cerrado: () => cerrado, root }
 }
 
 describe("T7-F1 — formulario de Retiro personal", () => {
@@ -98,8 +109,10 @@ describe("T7-F1 — formulario de Retiro personal", () => {
     await click($("retiro-confirmar"))
     expect(registrados).toHaveLength(0)
     expect(document.body.textContent).toContain("No sabemos si el retiro se registró")
+    expect($("retiro-pendiente")).not.toBeNull()
+    expect(readPendingRetiro(SCOPE)?.key).toBe(posts[0].key as string)
     respuesta = () => new Response(JSON.stringify({ ok: true, retiro: { id: "r1", beneficiarioNombre: "Mozo Carlos", valorComercial: 4000, cantidadLineas: 2 } }), { status: 201 })
-    await click($("retiro-confirmar"))
+    await click($("retiro-reintentar"))
     expect(posts).toHaveLength(2)
     expect(posts[0].key).toBeTruthy()
     expect(posts[1].key).toBe(posts[0].key)
@@ -129,5 +142,51 @@ describe("T7-F1 — formulario de Retiro personal", () => {
     expect(cuerpoRetiro(cart, sel, "").beneficiario).toEqual({ tipo: "FAMILIAR", nuevoNombre: "José Gómez" })
     expect(cuerpoRetiro(cart, { ...sel, tipo: "DUENO" }, "x").beneficiario).toEqual({ tipo: "DUENO" })
     expect(normalizarNombreFamiliar("  JOSÉ   gómez ")).toBe("jose gomez")
+  })
+
+  test("respuesta perdida: el intento queda guardado; al volver a montar (reapertura o recarga) se reenvía igual y con la misma clave", async () => {
+    const primera = await render()
+    await click($("retiro-confirmo"))
+    respuesta = () => { throw new TypeError("Failed to fetch") }
+    await click($("retiro-confirmar"))
+    expect(primera.registrados).toHaveLength(0)
+    const guardado = readPendingRetiro(SCOPE)!
+    expect(guardado.key).toBe(posts[0].key as string)
+    expect(guardado.canonical).toBe(JSON.stringify(posts[0].body))
+    expect(window.sessionStorage.getItem(`deligo:caja:retiro-attempt:v1:${SCOPE}`)).not.toMatch(/costo|password|token|cookie/i)
+    await act(async () => primera.root.unmount())
+    document.body.innerHTML = ""
+    // otro carrito en pantalla: el reintento usa SIEMPRE el contenido original
+    const segunda = await render([{ productoId: "otro", nombre: "Otro", precio: 1, cantidad: 9 }])
+    expect($("retiro-pendiente")).not.toBeNull()
+    expect($("retiro-confirmar")).toBeNull() // no se puede editar un intento incierto
+    respuesta = () => new Response(JSON.stringify({ ok: true, retiro: { id: "r9", beneficiarioNombre: "Cajera Ana", valorComercial: 4000, cantidadLineas: 2 } }), { status: 200, headers: { "Idempotency-Replayed": "true" } })
+    await click($("retiro-reintentar"))
+    expect(posts).toHaveLength(2)
+    expect([posts[1].key, JSON.stringify(posts[1].body)]).toEqual([posts[0].key, guardado.canonical])
+    expect(segunda.registrados).toEqual([{ id: "r9", replayed: true }])
+    expect(readPendingRetiro(SCOPE)).toBeNull()
+  })
+
+  test("un rechazo definitivo de un intento pendiente lo descarta y vuelve al formulario editable", async () => {
+    await render()
+    await click($("retiro-confirmo"))
+    respuesta = () => new Response("{}", { status: 502 })
+    await click($("retiro-confirmar"))
+    expect(readPendingRetiro(SCOPE)).not.toBeNull()
+    respuesta = () => new Response(JSON.stringify({ ok: false, error: "No tenés permiso", code: "RETIRO_NO_HABILITADO" }), { status: 403 })
+    await click($("retiro-reintentar"))
+    expect(readPendingRetiro(SCOPE)).toBeNull()
+    expect($("retiro-confirmar")).not.toBeNull()
+    expect(document.body.textContent).toContain("No tenés permiso")
+  })
+
+  test("los intentos se aíslan por negocio y contexto operativo; un registro inválido se ignora", () => {
+    writePendingRetiro("operativo:e1:n1", { key: "8f14e45f-ceea-4e6b-9c2a-1a2b3c4d5e6f", canonical: JSON.stringify({ confirmado: true, items: [] }), cart: [cart[0]], beneficiarioNombre: "Ana", createdAt: 1 })
+    expect(readPendingRetiro("operativo:e1:n1")?.beneficiarioNombre).toBe("Ana")
+    expect(readPendingRetiro("operativo:e2:n1")).toBeNull()
+    expect(readPendingRetiro("n1")).toBeNull()
+    window.sessionStorage.setItem("deligo:caja:retiro-attempt:v1:roto", JSON.stringify({ key: "no-uuid", canonical: "{}", cart: [] }))
+    expect(readPendingRetiro("roto")).toBeNull()
   })
 })

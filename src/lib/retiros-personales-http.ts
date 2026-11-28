@@ -18,7 +18,7 @@ import {
   guardarPermisoRetiro,
   historialDecisiones,
   listarPermisosRetiro,
-  listarRetiros,
+  listarRetirosPagina,
   parseDecisionBody,
   parseDevolucionBody,
   parseFiltroRetiros,
@@ -26,7 +26,7 @@ import {
   registrarDecisionRecupero,
   registrarDevolucionRetiro,
   registrarRetiroPersonal,
-  resumirRetiros,
+  resumenRetirosPeriodo,
   retiroParaCajero,
   retiroParaDueno,
   RETIRO_MOTIVO_MAX,
@@ -93,8 +93,11 @@ export async function listarRetirosHttp(req: NextRequest, negocioId: string) {
   try {
     const f = parseFiltroRetiros(req.nextUrl.searchParams)
     if (!f.ok) return json({ ok: false, error: f.error }, 400)
-    const retiros = await listarRetiros(db, negocioId, f.value)
-    return json({ ok: true, retiros: retiros.map(retiroParaDueno) })
+    const cursor = req.nextUrl.searchParams.get("cursor")
+    if (cursor !== null && !/^[A-Za-z0-9_-]{1,64}$/.test(cursor)) return json({ ok: false, error: "Página inválida." }, 400)
+    const pagina = await listarRetirosPagina(db, negocioId, f.value, cursor)
+    // Detalle paginado y explícito: siguienteCursor != null significa que hay más retiros en el período.
+    return json({ ok: true, retiros: pagina.retiros.map(retiroParaDueno), siguienteCursor: pagina.siguienteCursor })
   } catch (error) {
     return errorHttp(error, "listado")
   }
@@ -104,7 +107,8 @@ export async function resumenRetirosHttp(req: NextRequest, negocioId: string) {
   try {
     const f = parseFiltroRetiros(req.nextUrl.searchParams)
     if (!f.ok) return json({ ok: false, error: f.error }, 400)
-    return json({ ok: true, resumen: resumirRetiros(await listarRetiros(db, negocioId, f.value)) })
+    // Totales del período COMPLETO (sin límite de registros).
+    return json({ ok: true, resumen: await resumenRetirosPeriodo(db, negocioId, f.value) })
   } catch (error) {
     return errorHttp(error, "resumen")
   }

@@ -3269,6 +3269,7 @@ model RetiroPersonalLinea {
   costoUnitarioDecimal  Decimal? @db.Decimal(14, 4) // NULL = costo desconocido (nunca 0)
   costoTotalDecimal     Decimal? @db.Decimal(12, 2)
   movioStock            Boolean // la clave tenía control de stock y se descontó en el retiro
+  lineaDeVariante       Boolean // la línea se registró sobre una variante (se conserva aunque la variante se borre)
 
   negocio          Negocio                 @relation(fields: [negocioId], references: [id], onDelete: Cascade)
   retiro           RetiroPersonal          @relation(fields: [retiroId], references: [id], onDelete: Cascade)

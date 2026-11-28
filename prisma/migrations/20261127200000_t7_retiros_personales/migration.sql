@@ -66,6 +66,7 @@ CREATE TABLE "retiro_personal_lineas" (
     "costoUnitarioDecimal" DECIMAL(14,4),
     "costoTotalDecimal" DECIMAL(12,2),
     "movioStock" BOOLEAN NOT NULL,
+    "lineaDeVariante" BOOLEAN NOT NULL,
 
     CONSTRAINT "retiro_personal_lineas_pkey" PRIMARY KEY ("id")
 );
@@ -274,6 +275,8 @@ ALTER TABLE "retiro_personal_lineas" ADD CONSTRAINT "retiro_personal_lineas_valo
   "cantidad" > 0 AND "precioUnitarioDecimal" >= 0 AND "valorLineaDecimal" >= 0
   AND ("costoUnitarioDecimal" IS NULL) = ("costoTotalDecimal" IS NULL)
   AND ("costoUnitarioDecimal" IS NULL OR ("costoUnitarioDecimal" >= 0 AND "costoTotalDecimal" >= 0))
+  -- una línea de producto nunca apunta a una variante; una de variante conserva su naturaleza aunque la variante se borre
+  AND ("lineaDeVariante" OR "productoVarianteId" IS NULL)
 );
 
 ALTER TABLE "devoluciones_retiro" ADD CONSTRAINT "devoluciones_retiro_chk" CHECK (
