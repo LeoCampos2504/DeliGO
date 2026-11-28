@@ -1,4 +1,12 @@
-## LATEST UPDATE — T7-F1: RETIROS PERSONALES DESDE CAJA, IMPLEMENTADA EN `codex/retiros-personales` (2026-11-27)
+## LATEST UPDATE — T7-F1: CORRECCIONES DE LA REVISIÓN INDEPENDIENTE (2026-11-28)
+
+- Arquitectura aceptada por ChatGPT sobre `2f42bf61` (CI 46087712923, 1.061 pruebas). Corregido antes de TESTING:
+  resumen sin truncamiento (período completo por lotes), intento incierto persistido (sin duplicar al cerrar, reabrir
+  o recargar; nunca se convierte en venta) y variante borrada sin reingreso al producto padre.
+- Nada desplegado; `main` = `testing-codex` = `697dfd7e`. Siguiente: revisión de las correcciones → respaldo de
+  TESTING (70 migraciones) → protecciones T7 → TESTING. Handoff: `CODEX_REPORT.md`.
+
+## PRECEDING UPDATE — T7-F1: RETIROS PERSONALES DESDE CAJA, IMPLEMENTADA EN `codex/retiros-personales` (2026-11-27)
 
 - Primera funcionalidad de T7 (decisión del operador; la paridad de enlaces/QR de mesas pasa a segunda prioridad).
 - Salida NO comercial de mercadería para empleados, familiares y dueño desde el mismo carrito de Caja; stock por la

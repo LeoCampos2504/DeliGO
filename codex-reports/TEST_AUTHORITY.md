@@ -1,5 +1,13 @@
 # CURRENT TEST AUTHORITY — POST-P2-T02-R6 (2026-09-13)
 
+## T7-F1 review corrections (2026-11-28, branch codex/retiros-personales)
+
+```text
+VERIFIED_BEFORE=2f42bf61 · CI 46087712923 (job 140801107253) 91/91 steps · 1061 tests passed, 0 failed, 0 skipped (verified by ChatGPT)
+NEW_OR_EXTENDED=t7-f1 integration 15 → 18 (2,050-withdrawal complete summary + pagination, deleted variant, return quantities) · static contract 8 → 11 · caja-retiro-personal 5 → 8 (lost response, remount, definitive rejection, scope isolation) · NEW caja-tab.retiro-intento.test.tsx 2 (real CajaTab: lost response, close/reopen, reload, Cobrar never sells the pending cart) · owner screen 4
+CI_STEPS=85 → 86 (only an addition)
+```
+
 ## T7-F1 test authority (2026-11-27, branch codex/retiros-personales)
 
 ```text

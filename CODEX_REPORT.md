@@ -6,7 +6,18 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T7-F1 RETIROS PERSONALES DESDE CAJA · IMPLEMENTADA CON PRUEBAS · CI DE LA RAMA · ESPERANDO REVISIÓN DE CHATGPT (2026-11-27)
+=== LATEST HANDOFF — T7-F1 RETIROS PERSONALES · CORRECCIONES DE LA REVISIÓN DE CHATGPT · CI DE LA RAMA · ESPERANDO REVISIÓN DE LAS CORRECCIONES (2026-11-28)
+
+REPO=rama ÚNICA codex/retiros-personales · revisión previa aprobada sobre 2f42bf61 (CI 46087712923, 91/91, 1.061 pruebas) · origin/main = origin/testing-codex = 697dfd7e (sin cambios) · nada desplegado
+CORRECCIONES=(1) resumen del período COMPLETO por lotes en una transacción de solo lectura, detalle paginado explícito · (2) intento de retiro incierto persistido en sessionStorage propio por negocio/contexto (misma clave y mismo contenido al cerrar/reabrir/recargar; «Cobrar» no lo convierte en venta; carrito restaurado y vaciado sólo tras la confirmación) · (3) lineaDeVariante: una variante borrada nunca reingresa al producto padre; cantidades de devolución con la regla de F4 y Decimal exacto
+MIGRACION=la 71.ª (aún no desplegada) suma retiro_personal_lineas.lineaDeVariante + CHECK; valorLineaDecimal (no reutiliza el nombre de la columna de ventas); 70 históricas sin cambios
+PRUEBAS_NUEVAS=integración 18 (2.050 retiros, variante borrada, cantidades) · contrato 11 · formulario 8 · CajaTab 2 · resumen 4 · CI +1 paso
+CI_FINAL=ver el informe (corrida del SHA final de codex/retiros-personales); se registra en el primer commit documental del paso TESTING
+RESPALDO_TESTING=antes de la migración 71: testing-respaldo-t1-t3.ps1 -Etiqueta pre-t7-f1 (valores por defecto = 70 migraciones, última F10-D1); detenerse ante cualquier FAIL
+PROTECCIONES_T7=probar el ruleset (operador importa t7-probe-ruleset.json; Claude hace 3 pushes de prueba a codex/t7-ruleset-probe) → operador importa t7-main-testing-codex-ruleset.json → fast-forward de testing-codex · «Wait for CI» de TESTING tras el fast-forward, de Production tras el de main
+SIGUIENTE_PASO=revisión de ChatGPT de las correcciones → respaldo de TESTING → protecciones → fast-forward de testing-codex → certificación manual focalizada → Production con el mismo SHA
+
+=== PRECEDING HANDOFF — T7-F1 RETIROS PERSONALES DESDE CAJA · IMPLEMENTADA CON PRUEBAS · CI DE LA RAMA · ESPERANDO REVISIÓN DE CHATGPT (2026-11-27)
 
 REPO=worktree deligo-estabilizacion · rama ÚNICA codex/retiros-personales (desde codex/t7-metodologia 7a050128, que incluye docs T6/T7 y el disparador de CI) · origin/main = origin/testing-codex = 697dfd7e (sin cambios) · Production intacto · nada desplegado
 FUNCIONALIDAD=retiro personal de mercadería (empleado, familiar, dueño) desde el mismo carrito de Caja; NO es un medio de pago ni una venta: operación propia, stock por la autoridad (RETIRO_PERSONAL / RETIRO_PERSONAL_REINGRESO), sin ventas, cobros, operaciones ni libro; efectivo esperado y cierre ciego intactos

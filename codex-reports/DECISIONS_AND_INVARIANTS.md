@@ -14,6 +14,10 @@
   eligible value is refused until the owner revises it.
 - Per-employee permission, off by default, re-read inside the transaction; the cashier never sees costs or decides.
 - A family member's equal (normalized) name is never merged automatically with an existing person.
+- Review corrections (ChatGPT, 2026-11-28): summaries always cover the WHOLE period (batched read, no record cap);
+  only the detail list is paginated and says so. An uncertain withdrawal attempt is persisted per business and
+  operational context and only resent as-is or discarded; it can never become a sale. A variant line keeps its
+  nature (`lineaDeVariante`) and a deleted variant never re-enters stock into the parent product.
 
 ## T7 — incremental development methodology ACTIVE (operator, 2026-11-27)
 

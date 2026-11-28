@@ -90,6 +90,26 @@ filtros), `GET resumen`, `POST decisiones`, `POST decisiones/[id]/anulacion`, `P
 (Idempotency-Key). Permisos: `GET/PUT /api/negocio/empleados/permisos-retiro`. Cajero
 (`/api/operativo/caja/[slug]/retiros-personales`): `GET contexto`, `POST` (Idempotency-Key; respuesta sin costos).
 
+## Correcciones de la revisión independiente de ChatGPT (2026-11-28)
+
+1. **Resumen completo.** `resumenRetirosPeriodo` recorre TODOS los retiros del período en lotes de 1.000 ordenados
+   (createdAt, id) dentro de una transacción de solo lectura REPEATABLE READ: totales y agrupados por persona incluyen
+   cada registro (`registrosIncluidos`). El límite existe sólo en el DETALLE, paginado y explícito (100 por página,
+   `siguienteCursor`; la pantalla muestra «Ver más retiros» y aclara que los totales cubren todo el período).
+2. **Intento incierto persistente.** El formulario guarda el intento (clave + cuerpo exacto + carrito + nombre del
+   beneficiario) en `sessionStorage` propio (`deligo:caja:retiro-attempt:v1:<scope>`, scope = negocio del dueño o
+   empleado + negocio del cajero) ANTES de enviarlo. Una respuesta incierta (sin respuesta o 5xx, misma clasificación
+   que el cobro: `classifyCheckoutResponse`) lo conserva; cerrar/reabrir o recargar vuelve al mismo intento, que sólo
+   se puede reenviar tal cual o descartar; mientras exista, «Cobrar» reabre el retiro (nunca cobra una venta con ese
+   carrito); el carrito se restaura al recargar y se vacía sólo tras la confirmación (y sólo si sigue siendo el
+   carrito retirado). Un rechazo definitivo lo descarta. Sin costos, decisiones ni credenciales en el almacenamiento.
+   El mecanismo de ventas (`caja-checkout-attempt.ts`) no se modificó; sólo se reutilizan su clasificación de
+   respuestas y su generador de claves.
+3. **Variante borrada.** Nueva columna `retiro_personal_lineas.lineaDeVariante` (CHECK: una línea de producto nunca
+   apunta a una variante). Una línea de variante cuya variante ya no existe (FK SET NULL) nunca reingresa stock al
+   producto padre. Las cantidades devueltas siguen la regla de F4 (> 0, hasta 7 enteros y 3 decimales) y el remanente
+   se compara con Decimal exacto. (Ninguna ruta borra variantes físicamente; la protección es defensiva.)
+
 ## Interfaz
 
 - Caja (dueño y cajero, misma vista `VenderView`): «Cobrar» muestra «Retiro personal» separado de los medios de pago
@@ -103,7 +123,8 @@ filtros), `GET resumen`, `POST decisiones`, `POST decisiones/[id]/anulacion`, `P
 
 ## Pruebas
 
-`src/lib/t7-f1-retiros-personales.integration.test.ts` (15, PostgreSQL efímero, rutas reales),
-`src/lib/t7-f1-retiros-personales-static-contract.test.ts` (8), `src/components/business/caja-retiro-personal.test.tsx`
-(5), `src/components/business/owner-retiros-personales.test.tsx` (4); contrato R3A-I2 actualizado con el nuevo caller
-de `runStockSerializable` (34) y sumado al CI.
+`src/lib/t7-f1-retiros-personales.integration.test.ts` (18, PostgreSQL efímero, rutas reales; incluye 2.050 retiros),
+`src/lib/t7-f1-retiros-personales-static-contract.test.ts` (11), `src/components/business/caja-retiro-personal.test.tsx`
+(8), `src/components/business/caja-tab.retiro-intento.test.tsx` (2, CajaTab real: respuesta perdida, reapertura,
+recarga), `src/components/business/owner-retiros-personales.test.tsx` (4); contrato R3A-I2 actualizado con el nuevo
+caller de `runStockSerializable` (34) y sumado al CI. CI de `2f42bf61`: 46087712923, 91/91 pasos, 1.061 pruebas.
