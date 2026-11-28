@@ -1,5 +1,20 @@
 # CURRENT DECISIONS AND INVARIANTS — POST-P2-T02-R6 (2026-09-13)
 
+## T7-F1 — personal merchandise withdrawals from Caja (operator, 2026-11-27)
+
+- Priority: first T7 feature (before presenting DeliGO to businesses); table link/QR parity becomes second.
+- A withdrawal is a NON-commercial outflow of merchandise, never a payment method or a sale: no Venta, CobroVenta,
+  OperacionFinanciera, MovimientoFinanciero or EgresoCaja; the shift's expected cash and the blind close never change.
+- Stock only through `stock-lifecycle.ts` (available = physical − ACTIVA reservations, never negative; uncontrolled
+  keys never move nor get control enabled); returns re-enter only what actually left the stock.
+- Values frozen at registration from the catalog (Caja sale price, no promotions; known cost, unknown = NULL never 0);
+  the client never sends prices, costs, totals or the registrant.
+- Owner decisions on employee withdrawals are INFORMATIVE (no collection, no payroll deduction), capped by the eligible
+  value, one active decision per withdrawal, full history; a return that would leave an active decision above the
+  eligible value is refused until the owner revises it.
+- Per-employee permission, off by default, re-read inside the transaction; the cashier never sees costs or decides.
+- A family member's equal (normalized) name is never merged automatically with an existing person.
+
 ## T7 — incremental development methodology ACTIVE (operator, 2026-11-27)
 
 - Cycle DEFINICIÓN → DESARROLLO → CI → TESTING → CERTIFICACIÓN MANUAL FOCALIZADA → PRODUCTION → VERIFICACIÓN TÉCNICA →

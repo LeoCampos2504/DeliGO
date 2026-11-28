@@ -1,5 +1,14 @@
 # CURRENT TEST AUTHORITY — POST-P2-T02-R6 (2026-09-13)
 
+## T7-F1 test authority (2026-11-27, branch codex/retiros-personales)
+
+```text
+NEW_SUITES=src/lib/t7-f1-retiros-personales.integration.test.ts (15, ephemeral PostgreSQL, real routes) · src/lib/t7-f1-retiros-personales-static-contract.test.ts (8) · src/components/business/caja-retiro-personal.test.tsx (5) · src/components/business/owner-retiros-personales.test.tsx (4)
+UPDATED_EXACT_CONTRACT=p2-t56-r3a-i2-wiring-static-contract: retiros-personales-service.ts registered as a runStockSerializable caller (no assertion removed); the suite (34) is now also run by CI
+CI_STEPS=81 → 85 (only additions)
+LOCAL=integration 15/15 ×4 · regression R3A-F4 5, F10-B1 23, F10-D1 16, T5 4, F4-C1 6 · ESLint clean · typecheck: only the 2 known historical-client errors (generated in CI)
+```
+
 ## T5/T6 test authority (2026-11-27)
 
 ```text

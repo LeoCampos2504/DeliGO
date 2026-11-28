@@ -15,13 +15,21 @@
 ### ORDEN DE PRIORIDADES AL RETOMAR (operador, 2026-11-27)
 
 0. Importar y probar el ruleset de GitHub (procedimiento en `DEVELOPMENT_WORKFLOW.md`); requisito operativo, no funcionalidad.
-1. **Paridad de enlaces y códigos QR de mesas en Terminal y Salón personal** — primera funcionalidad del ciclo T7; su
-   rama parte de la punta de `codex/t7-metodologia` (lleva los documentos de T6/T7 y el disparador de CI).
-2. Renovación y limpieza segura de suscripciones push inválidas (F-T6-01).
-3. Incidencias diferidas de T5 y T6.
-4. Certificaciones funcionales pendientes (pruebas manuales de T5 diferidas).
-5. Funcionalidades restantes del roadmap.
-6. Investigación del seguimiento GPS de repartidores (P2-T23/T24 excluidos de Production; historial conservado).
+1. **T7-F1 — Retiros personales de mercadería desde Caja** (operador, 2026-11-27: primera funcionalidad de T7, antes de
+   presentar DeliGO a los negocios). **EN CURSO** en `codex/retiros-personales` (desde `codex/t7-metodologia`
+   `7a050128`): implementada con pruebas; CI de la rama; pendiente revisión de ChatGPT → TESTING → certificación
+   manual focalizada → Production. Diseño: `codex-reports/T7_F1_RETIROS_PERSONALES_DISENO.md`.
+2. **Paridad de enlaces y códigos QR de mesas en Terminal y Salón personal** — segunda prioridad (no cancelada).
+3. Renovación y limpieza segura de suscripciones push inválidas (F-T6-01).
+4. Incidencias diferidas de T5 y T6.
+5. Certificaciones funcionales pendientes (pruebas manuales de T5 diferidas).
+6. Funcionalidades restantes del roadmap.
+7. Investigación del seguimiento GPS de repartidores (P2-T23/T24 excluidos de Production; historial conservado).
+
+### FUERA DEL ALCANCE DE T7-F1 (no implementar sin discutirlo)
+
+Liquidación de sueldos, descuentos salariales automáticos, cobros reales de lo decidido (efectivo, transferencia o
+deuda) y cualquier movimiento financiero asociado a un retiro.
 
 ### PRUEBAS MANUALES DE T5 DIFERIDAS (decisión comercial del operador, 2026-11-27 — NO APROBADAS)
 

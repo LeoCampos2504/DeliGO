@@ -6,7 +6,19 @@ REPORT_DIR_CANONICAL=C:\Leo Campos\Trabajo\deligo-main-limpio\codex-reports
 REPORT_LOCATION_POLICY=ROOT_CODEX_REPORT.md_IS_PRIMARY_HANDOFF; SPECIALIZED_TECHNICAL_REPORTS_LIVE_IN_codex-reports; DO_NOT_CREATE_DUPLICATE_MASTER
 WORKTREE_REPORT_DIR_IS_NOT_CANONICAL=NO (Git-tracked master handoff is the root CODEX_REPORT.md; codex-reports/CODEX_REPORT.md is absent)
 
-=== LATEST HANDOFF — T7 VIGENTE: METODOLOGÍA INCREMENTAL ACTIVADA · T6 CERRADA · SIN DESPLIEGUES (2026-11-27)
+=== LATEST HANDOFF — T7-F1 RETIROS PERSONALES DESDE CAJA · IMPLEMENTADA CON PRUEBAS · CI DE LA RAMA · ESPERANDO REVISIÓN DE CHATGPT (2026-11-27)
+
+REPO=worktree deligo-estabilizacion · rama ÚNICA codex/retiros-personales (desde codex/t7-metodologia 7a050128, que incluye docs T6/T7 y el disparador de CI) · origin/main = origin/testing-codex = 697dfd7e (sin cambios) · Production intacto · nada desplegado
+FUNCIONALIDAD=retiro personal de mercadería (empleado, familiar, dueño) desde el mismo carrito de Caja; NO es un medio de pago ni una venta: operación propia, stock por la autoridad (RETIRO_PERSONAL / RETIRO_PERSONAL_REINGRESO), sin ventas, cobros, operaciones ni libro; efectivo esperado y cierre ciego intactos
+MIGRACION=20261127200000_t7_retiros_personales (71.ª, aditiva: empleados.retiroPersonalHabilitado DEFAULT false, 2 columnas NULL en movimientos_inventario, 7 tablas nuevas, CHECKs, índice único parcial de decisión vigente, trigger de cantidades devueltas) · 70 históricas sin cambios
+PERMISOS=dueño siempre; cajero sólo con permiso individual (deshabilitado por defecto, releído en la transacción: la revocación vale para sesiones abiertas); el cajero no ve costos, no decide recuperaciones, no anula ni devuelve
+ADMINISTRACION=Resumen → Retiros personales: períodos, tipo, persona, valor comercial, costo conocido, detalle, decisiones informativas (nada/todo/parte/pendiente, historial), anulaciones y devoluciones auditadas, permisos
+PRUEBAS_LOCALES=integración 15/15 (4 corridas estables, PostgreSQL 18 efímero local, 71 migraciones) · contrato 8/8 · UI 5/5 + 4/4 · R3A-I2 34/34 (nuevo caller registrado) · regresión local R3A-F4 5, F10-B1 23, F10-D1 16, T5 4, F4-C1 6 · ESLint limpio · typecheck sin errores nuevos · build: en CI (el build local falla por el junction de node_modules, limitación conocida)
+CI=ver GIT_DEPLOY_HISTORY / informe (corrida de codex/retiros-personales)
+PROHIBIDO=push a testing-codex o main, despliegues, cambios en Production/TESTING, sueldos, cobros reales o movimientos financieros por retiros
+SIGUIENTE_PASO=revisión de ChatGPT del código, la migración y las pruebas → autorización del fast-forward de testing-codex → certificación manual focalizada en TESTING → Production con el mismo SHA
+
+=== PRECEDING HANDOFF — T7 VIGENTE: METODOLOGÍA INCREMENTAL ACTIVADA · T6 CERRADA · SIN DESPLIEGUES (2026-11-27)
 
 REPO=worktree deligo-estabilizacion · rama codex/t7-metodologia (remota, documental + disparador de CI; ningún servicio de Railway la sigue): 90114b0c docs(t6) → docs(t7) → ci(t7) · origin/main = origin/testing-codex = 697dfd7e6516f22e98597ab07021f30b23e6849a (sin cambios) · codex/release-candidata remota en 697dfd7e
 PRODUCTION=697dfd7e (DeliGO 94e9cc9e, Mesa Cron 33caa6ae, Review Expiry 42d42576, chat 6740eb42) · etiqueta prod-2026-11-27-697dfd7e · ningún despliegue nuevo en T7

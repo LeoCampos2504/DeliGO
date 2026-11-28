@@ -18,7 +18,10 @@ Primera funcionalidad del ciclo T7 (operador, 2026-11-27). Rama única: `codex/r
 
 - `empleados.retiroPersonalHabilitado BOOLEAN NOT NULL DEFAULT false` — nadie queda habilitado automáticamente.
 - `familiares_retiro` — familiares frecuentes por negocio; `nombreNormalizado` único por negocio (sin acentos,
-  minúsculas, espacios colapsados) para evitar duplicados accidentales; no requiere cuenta de DeliGO.
+  minúsculas, espacios colapsados) para evitar duplicados accidentales; no requiere cuenta de DeliGO. **Un nombre
+  igual a uno registrado nunca se asume como la misma persona**: el servidor responde 409
+  `FAMILIAR_NOMBRE_EXISTENTE` (con el familiar existente) y el formulario pide elegirlo explícitamente o escribir un
+  nombre que los distinga (apellido o parentesco). Dos altas simultáneas del mismo nombre: una sola se crea.
 - `retiros_personales` — tipo de beneficiario (EMPLEADO | FAMILIAR | DUENO) con su referencia real (empleado,
   familiar o el propio negocio) y el **nombre histórico**; quién registró (NEGOCIO | EMPLEADO, id y nombre
   histórico); turno de Caja del cajero si tenía uno abierto (contexto, sin efecto en el efectivo); valor comercial
@@ -45,6 +48,8 @@ Primera funcionalidad del ciclo T7 (operador, 2026-11-27). Rama única: `codex/r
   de «inicio de venta»: si el total que vio el cajero no coincide con el actual → 409 `PRECIOS_CAMBIARON`.
 - Producto sin precio de venta → 400 `PRODUCTO_SIN_PRECIO` (igual que una venta).
 - Costo = costo propio de la variante, si no el del producto (misma regla que precios-venta); NULL = desconocido.
+  Un costo 0 o negativo en el catálogo también se trata como desconocido (el catálogo no distingue «0» de «sin
+  cargar»); nunca se muestra un costo desconocido como 0.
   Los totales informan costo conocido y si está completo. Valores congelados: cambios posteriores de precio,
   costo, nombre o empleado no alteran el registro.
 - El cajero no puede alterar valores: no hay campos de precio/total editables; el servidor recalcula todo.
@@ -84,3 +89,21 @@ Dueño (`/api/negocio/caja/retiros-personales`): `GET contexto`, `POST` (Idempot
 filtros), `GET resumen`, `POST decisiones`, `POST decisiones/[id]/anulacion`, `POST [id]/devoluciones`
 (Idempotency-Key). Permisos: `GET/PUT /api/negocio/empleados/permisos-retiro`. Cajero
 (`/api/operativo/caja/[slug]/retiros-personales`): `GET contexto`, `POST` (Idempotency-Key; respuesta sin costos).
+
+## Interfaz
+
+- Caja (dueño y cajero, misma vista `VenderView`): «Cobrar» muestra «Retiro personal» separado de los medios de pago
+  sólo si el servidor confirma el permiso (y nunca durante un cobro sin confirmar). El formulario usa el carrito tal
+  como está, muestra el aviso «Esta operación registra una salida de mercadería sin ingreso de dinero a Caja.», exige
+  la confirmación explícita y vacía el carrito sólo tras la confirmación del servidor.
+- Administración → Resumen → Retiros personales (`owner-retiros-personales.tsx`, sección plegable): períodos hoy /
+  esta semana / este mes / rango, tipo y persona; totales; detalle por persona con productos, valor, costo conocido,
+  registrante, observaciones, estado y decisión; decisiones (no recuperar, todo, una parte, modificar, volver a
+  pendiente) con historial; anulación y devolución; permisos individuales («Quién puede registrar retiros»).
+
+## Pruebas
+
+`src/lib/t7-f1-retiros-personales.integration.test.ts` (15, PostgreSQL efímero, rutas reales),
+`src/lib/t7-f1-retiros-personales-static-contract.test.ts` (8), `src/components/business/caja-retiro-personal.test.tsx`
+(5), `src/components/business/owner-retiros-personales.test.tsx` (4); contrato R3A-I2 actualizado con el nuevo caller
+de `runStockSerializable` (34) y sumado al CI.

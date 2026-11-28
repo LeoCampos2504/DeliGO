@@ -1,4 +1,13 @@
-## LATEST UPDATE — T7 VIGENTE: METODOLOGÍA INCREMENTAL (2026-11-27)
+## LATEST UPDATE — T7-F1: RETIROS PERSONALES DESDE CAJA, IMPLEMENTADA EN `codex/retiros-personales` (2026-11-27)
+
+- Primera funcionalidad de T7 (decisión del operador; la paridad de enlaces/QR de mesas pasa a segunda prioridad).
+- Salida NO comercial de mercadería para empleados, familiares y dueño desde el mismo carrito de Caja; stock por la
+  autoridad única; ningún movimiento de dinero; decisiones de recuperación sólo informativas.
+- Migración aditiva 71 `20261127200000_t7_retiros_personales`. Pruebas nuevas (integración, contrato, UI) en el CI.
+- Nada desplegado; `main` = `testing-codex` = `697dfd7e`. Siguiente: revisión de ChatGPT → TESTING. Handoff:
+  `CODEX_REPORT.md`; diseño: `codex-reports/T7_F1_RETIROS_PERSONALES_DISENO.md`.
+
+## PRECEDING UPDATE — T7 VIGENTE: METODOLOGÍA INCREMENTAL (2026-11-27)
 
 - **T7 activada por el operador** el 2026-11-27: ciclo DEFINICIÓN → DESARROLLO → CI → TESTING → CERTIFICACIÓN MANUAL
   FOCALIZADA → PRODUCTION → VERIFICACIÓN TÉCNICA → CIERRE; autoridad `DEVELOPMENT_WORKFLOW.md`.
